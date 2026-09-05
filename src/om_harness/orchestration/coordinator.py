@@ -157,7 +157,12 @@ class Coordinator:
             last_result = result
             if result.status == TaskStatus.completed:
                 break
-            self._emit(EventType.TASK_FAILED, task_id=task.id, attempt=attempt, error=result.errors)
+            self._emit(
+                EventType.TASK_FAILED,
+                task_id=task.id,
+                attempt=str(attempt),
+                error="; ".join(result.errors),
+            )
         self._emit(
             EventType.TASK_COMPLETED
             if last_result and last_result.status == TaskStatus.completed
