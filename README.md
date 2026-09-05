@@ -97,20 +97,66 @@ om-harness                 # starts an interactive chat session
 The first launch creates your user config at `~/.om-harness/` and prints a
 short setup hint. That's the whole onboarding.
 
-## The interactive chat
+## The interactive shell
 
-Running bare `om-harness` (or `om-harness chat`) starts a coding session in
-the current repository — Codex/Claude-Code style:
+Running bare `om-harness` (or `om-harness chat`) opens a coding shell in the
+current repository:
 
-- **live activity**: tool calls, commands, and approvals stream as they
+```
+╭─ om · openai:gpt-4o · ⏵⏵ auto · ◑ thinking:med ──────╮
+│ ❯ fix the sign bug in calc.py
+╰──────╯
+⚙ tool read_file(path='calc.py')
+⚙ tool edit_file(path='calc.py', old_string='…', new_string='…')
+⚙ tool run_tests()
+✔ run completed
+om Fixed add() in calc.py — tests pass.
+◇ wrote calc.py · ran run_tests · 115+2 tok
+```
+
+- **Always-on status**: the input header and the persistent status bar show
+  the active model, thinking level, approval mode, and a live context
+  gauge (`context ▮▮▮▯▯… 32k/200k`) at all times.
+- **Live activity**: tool calls, commands, and approvals stream as they
   happen; per-turn summaries show files read, files modified, commands run,
-  and tokens spent; the prompt footer carries session totals;
-- **model thinking**: `/thinking` toggles live streaming of the model's
-  reasoning (for reasoning models);
-- **configuration management**: `/model [name]`, `/config`,
-  `/config set <key> <value>` (persisted to
-  `~/.om-harness/config/config.toml`), `/providers`, `/tools`, `/status`,
-  `/sessions`, `/checkpoint [label]`, `/verbose`, `/thinking`, `/exit`.
+  and tokens spent. Replies stream token-by-token from streaming models.
+- **Slash commands with hints**: type `/` for an autocomplete popup with
+  descriptions; the status bar shows argument hints while you type.
+
+### Keybindings
+
+| Keys | Action |
+|---|---|
+| `Enter` | send |
+| `\` + `Enter` or `Alt+Enter` | newline (multi-line input) |
+| `Shift+Tab` | cycle approval mode: ask → auto → deny |
+| `Ctrl+M` | model selector (arrow keys, all configured providers) |
+| `Ctrl+T` | cycle thinking level: off → low → medium → high |
+| `Ctrl+O` | cycle verbosity: compact → verbose → debug |
+| `Ctrl+G` | help (commands + keys) |
+| `Ctrl+L` | clear screen |
+| `Ctrl+C` | clear input · double-press quits · interrupts a running turn |
+| `Ctrl+D` | quit |
+| `Up/Down` | input history |
+
+### Slash commands
+
+`/model [name]` (no args: arrow-key selector) · `/thinking [level]` ·
+`/config` · `/config set <key> <value>` · `/providers` · `/tools` ·
+`/status` · `/sessions` · `/checkpoint [label]` · `/setup` · `/verbose` ·
+`/help` · `/exit`.
+
+`/setup` walks you through provider configuration (including adding a
+custom OpenAI-compatible endpoint to `~/.om-harness/config/models.json`),
+model selection, approval mode, verbosity, and thinking level — everything
+persists to `~/.om-harness/`.
+
+### Thinking levels
+
+`off / low / medium / high` map to each provider's native reasoning controls
+(Anthropic thinking budgets, Gemini thinking config, OpenAI reasoning
+effort — reasoning models only). Unsupported providers simply run without
+thinking settings.
 
 User-level configuration lives in `~/.om-harness/`:
 

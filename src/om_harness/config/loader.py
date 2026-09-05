@@ -44,6 +44,21 @@ class ApprovalPolicy(StrEnum):
     deny = "deny"  # deny every mutating/destructive tool
 
 
+class ThinkingLevel(StrEnum):
+    """Model reasoning effort; mapped per provider by the runner.
+
+    off    — no thinking settings sent
+    low    — smallest thinking budget
+    medium — provider default budget
+    high   — largest budget (reasoning-heavy work)
+    """
+
+    off = "off"
+    low = "low"
+    medium = "medium"
+    high = "high"
+
+
 class ApprovalConfig(BaseModel):
     policy: ApprovalPolicy = ApprovalPolicy.ask
     allowlist: set[str] = Field(default_factory=set)
@@ -87,6 +102,7 @@ class HarnessConfig(BaseModel):
     agent_timeout_seconds: float = 600.0
     tool_timeout_seconds: float = 60.0
     verbosity: Verbosity = Verbosity.compact
+    thinking: ThinkingLevel = ThinkingLevel.off
 
     @field_validator("max_concurrency")
     @classmethod

@@ -1,27 +1,50 @@
-"""Interactive chat REPL for `om-harness` (and the `chat` alias).
+"""Interactive shell for `om-harness` — Claude-Code-style, uniquely om.
 
-Codex/Claude-style session: live event streaming (tool calls, commands,
-model thinking), per-turn activity summaries, cumulative token totals, and
-full configuration management through slash commands. Turn logic reuses the
-Harness facade exclusively — no runtime logic lives here.
+One input box, always-on status line (model · thinking · mode · context
+gauge), keybindings for everything, slash commands with autocomplete hints,
+a model selector, and a guided /setup wizard. Turn logic reuses the Harness
+facade exclusively — no runtime logic lives here.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import time
+from typing import Any
 
 from rich.markup import escape
+from rich.panel import Panel
 
+from om_harness import __version__
 from om_harness.config.loader import Verbosity
 from om_harness.config.user_settings import SettingsError, apply_config_update
 from om_harness.harness import Harness
 from om_harness.models.events import Event, EventType
 from om_harness.models.task import TokenUsage
-from om_harness.ui.components import DisplayLine, LineLevel, event_to_display, turn_activity
+from om_harness.ui.components import (
+    DisplayLine,
+    LineLevel,
+    event_to_display,
+    header_line,
+    status_bar,
+    turn_activity,
+    welcome_panel,
+)
+from om_harness.ui.slash import (
+    SlashCompleter,
+    args_hint_for,
+    cycle_approval,
+    cycle_thinking,
+    cycle_verbosity,
+    mode_glyph,
+    thinking_glyph,
+)
 from om_harness.ui.terminal import TerminalRenderer
 
 EXIT_COMMANDS = {"exit", "quit", ":q", "q"}
 PUMP_INTERVAL_SECONDS = 0.05
+CONTEXT_BUDGET_TOKENS = 200_000  # gauge ceiling when no budget is configured
 
 
 class ChatRepl:
@@ -39,48 +62,177 @@ class ChatRepl:
         self.show_thinking = False
         self.renderer = renderer or TerminalRenderer()
         self.total_usage = TokenUsage()
+        self._last_ctrl_c = 0.0
 
-    # -- main loop -----------------------------------------------------------
+    # -- state ----------------------------------------------------------------
+
+    @property
+    def model(self) -> str:
+        return self.harness.config.routing.default_model
+
+    @property
+    def thinking(self) -> str:
+        return self.harness.config.thinking.value
+
+    @property
+    def mode(self) -> str:
+        return self.harness.config.approval.policy.value
+
+    def _context_used(self) -> int:
+        return self.total_usage.input_tokens
+
+    def _context_max(self) -> int:
+        configured = self.harness.config.budget.max_input_tokens
+        return configured if configured else CONTEXT_BUDGET_TOKENS
+
+    # -- main loop ------------------------------------------------------------
 
     def run_forever(self) -> None:  # pragma: no cover - interactive loop
-        self.renderer.repl_prompt(self.session_id)
+        self._show_welcome()
+        session = self._make_prompt_session()
         while True:
             try:
-                text = self._read_input()
-            except (EOFError, KeyboardInterrupt):
+                text = session.prompt(
+                    message=self._prompt_message(), bottom_toolbar=self._status_bar
+                )
+                self.renderer.console.print("╰" + "─" * 6 + "╯")
+            except EOFError:
                 self.renderer.info("bye")
                 return
-            if not text.strip():
+            except KeyboardInterrupt:
+                now = time.monotonic()
+                if now - self._last_ctrl_c < 2.0:
+                    self.renderer.info("bye")
+                    return
+                self._last_ctrl_c = now
+                self.renderer.line(
+                    DisplayLine(level=LineLevel.dim, icon="·", text="press Ctrl+C again to quit")
+                )
                 continue
-            if text.startswith("/") and self._slash_command(text.strip()):
+            if not text.strip():
                 continue
             if text.strip().lower() in EXIT_COMMANDS:
                 self.renderer.info("bye")
                 return
+            if text.startswith("/") and self._slash_command(text.strip()):
+                continue
             self.run_turn(text)
 
-    def _read_input(self) -> str:  # pragma: no cover - interactive input
-        footer = ""
-        if self.total_usage.requests:
-            footer = f" [{self.total_usage.input_tokens} in / {self.total_usage.output_tokens} out]"
-        prompt = f"om{footer}> "
-        try:
-            from prompt_toolkit import prompt as pt_prompt
-            from prompt_toolkit.formatted_text import HTML
+    def _show_welcome(self) -> None:  # pragma: no cover - interactive
+        providers = [
+            p.name for p in self.harness.provider_registry.available_providers() if p.available
+        ]
+        body = welcome_panel(__version__, self.model, providers, first_run=False)
+        self.renderer.console.print(
+            Panel(body, border_style="cyan", padding=(0, 2), title="✦", title_align="left")
+        )
 
-            return pt_prompt(HTML(f"<b>{escape(prompt)}</b>"))
+    def _make_prompt_session(self) -> Any:  # pragma: no cover - TTY wiring
+        """PromptSession with keybindings, completer, and live status bar."""
+        try:
+            from prompt_toolkit import PromptSession
+            from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+            from prompt_toolkit.key_binding import KeyBindings
+
+            kb = KeyBindings()
+            repl = self
+
+            @kb.add("enter")
+            def _submit(event: Any) -> None:
+                buffer = event.current_buffer
+                if buffer.text.endswith("\\"):
+                    buffer.delete_before_cursor(1)
+                    buffer.insert_text("\n")
+                else:
+                    buffer.validate_and_handle()
+
+            @kb.add("escape", "enter")  # Alt+Enter: newline
+            def _newline(event: Any) -> None:
+                event.current_buffer.insert_text("\n")
+
+            @kb.add("backtab")  # Shift+Tab: cycle approval mode
+            def _mode(event: Any) -> None:
+                from om_harness.config.loader import ApprovalPolicy
+
+                repl.harness.config.approval.policy = ApprovalPolicy(cycle_approval(repl.mode))
+                event.app.invalidate()
+
+            @kb.add("c-t")  # cycle thinking level (persisted)
+            def _thinking(event: Any) -> None:
+                with contextlib.suppress(SettingsError):
+                    apply_config_update(repl.harness, "thinking", cycle_thinking(repl.thinking))
+                event.app.invalidate()
+
+            @kb.add("c-o")  # cycle verbosity
+            def _verbosity(event: Any) -> None:
+                repl.verbosity = Verbosity(cycle_verbosity(repl.verbosity.value))
+                event.app.invalidate()
+
+            @kb.add("c-m")  # model selector
+            def _selector(event: Any) -> None:
+                event.app.exit(exception=_ModelSelectorRequested(), style="class:aborting")
+
+            @kb.add("c-g")  # help
+            def _help(event: Any) -> None:
+                repl._cmd_help()
+                event.app.invalidate()
+
+            @kb.add("c-l")  # clear screen
+            def _clear(event: Any) -> None:
+                event.app.renderer.clear()
+
+            return PromptSession(
+                completer=SlashCompleter(self),
+                complete_while_typing=True,
+                auto_suggest=AutoSuggestFromHistory(),
+                key_bindings=kb,
+            )
         except Exception:
-            return input(prompt)
+            return _PlainSession()
+
+    # The prompt message and status bar are rebuilt on every iteration so the
+    # boxed header always shows the live model / mode / thinking state.
+
+    def _prompt_message(self) -> str:
+        header = header_line(self.model, mode_glyph(self.mode), thinking_glyph(self.thinking))
+        return header + "\n│ ❯ "
+
+    def _status_bar(self) -> str:
+        hint = self._typing_hint()
+        return status_bar(
+            self.model,
+            self.thinking,
+            mode_glyph(self.mode),
+            self._context_used(),
+            self._context_max(),
+            hint=hint,
+        )
+
+    def _typing_hint(self) -> str | None:
+        buffer_text = getattr(self, "_current_text", "")
+        if not buffer_text.startswith("/"):
+            return None
+        model_names = [name for name, _label in self._model_names()]
+        return args_hint_for(buffer_text, model_names)
+
+    def _model_names(self) -> list[tuple[str, str]]:
+        try:
+            from om_harness.config.user_settings import available_model_strings
+
+            return available_model_strings(self.harness)
+        except Exception:
+            return []
 
     # -- turns ---------------------------------------------------------------
 
     def run_turn(self, text: str) -> None:
-        """One user turn: live-render events while the agent works."""
+        """One user turn: live-render events and stream the reply."""
         offset = len(self.harness.bus.history)
         rendered: set[str] = set()
+        streamed: list[str] = []
 
         async def _turn() -> str:
-            pump = asyncio.create_task(self._pump(offset_holder, rendered))
+            pump = asyncio.create_task(self._pump(offset_holder, rendered, streamed))
             try:
                 return await self.harness.chat_turn(self.session_id, text)
             finally:
@@ -89,6 +241,14 @@ class ChatRepl:
         offset_holder = [offset]
         try:
             reply = asyncio.run(_turn())
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            for event in self.harness.bus.history[offset_holder[0] :]:
+                if event.id not in rendered:
+                    rendered.add(event.id)
+                    self._render_event(event)
+            self.renderer.console.print()
+            self.renderer.line(DisplayLine(level=LineLevel.warn, icon="⏹", text="turn interrupted"))
+            return
         except Exception as exc:
             self.renderer.error(f"turn failed: {exc}")
             return
@@ -96,8 +256,14 @@ class ChatRepl:
         for event in self.harness.bus.history[offset_holder[0] :]:
             if event.id not in rendered:
                 rendered.add(event.id)
-                self._render_event(event)
-        self.renderer.console.print(f"[green]om[/] {escape(reply)}")
+                self._render_event(event, streamed)
+        streamed_text = "".join(streamed)
+        if streamed_text:
+            self.renderer.console.print()  # close the streamed line
+            if streamed_text != reply:
+                self.renderer.console.print(f"[green]om[/] {escape(reply)}")
+        else:
+            self.renderer.console.print(f"[green]om[/] {escape(reply)}")
 
         segment = self.harness.bus.history[offset:]
         activity = turn_activity(segment)
@@ -108,7 +274,9 @@ class ChatRepl:
         if line != "no tool activity":
             self.renderer.line(DisplayLine(level=LineLevel.dim, icon="◇", text=line))
 
-    async def _pump(self, offset_holder: list[int], rendered: set[str]) -> None:
+    async def _pump(
+        self, offset_holder: list[int], rendered: set[str], streamed: list[str]
+    ) -> None:
         """Live-render new events while the turn runs (polling drain)."""
         try:
             while True:
@@ -119,16 +287,20 @@ class ChatRepl:
                     for event in new:
                         if event.id not in rendered:
                             rendered.add(event.id)
-                            self._render_event(event)
+                            self._render_event(event, streamed)
                 await asyncio.sleep(PUMP_INTERVAL_SECONDS)
         except asyncio.CancelledError:
             raise
 
-    def _render_event(self, event: Event) -> None:
+    def _render_event(self, event: Event, streamed: list[str] | None = None) -> None:
         if event.type == EventType.MESSAGE_DELTA:
             kind = event.data.get("kind")
             delta = event.data.get("delta") or ""
-            if self.show_thinking and kind == "thinking" and delta:
+            if kind == "text" and delta:
+                self.renderer.console.print(f"[green]{escape(delta)}[/]", end="")
+                if streamed is not None:
+                    streamed.append(delta)
+            elif self.show_thinking and kind == "thinking" and delta:
                 self.renderer.console.print(f"[dim italic]{escape(delta)}[/]", end="")
             return
         display = event_to_display(event, self.verbosity)
@@ -147,7 +319,15 @@ class ChatRepl:
         if command == "help":
             self._cmd_help()
         elif command == "model":
-            self._cmd_model(args[0] if args else None)
+            if args:
+                self._cmd_model(args[0])
+            else:
+                self._cmd_model_selector()
+        elif command == "thinking":
+            if args:
+                self._set_thinking(args[0])
+            else:
+                self.renderer.info(f"thinking level: {self.thinking}")
         elif command == "config":
             self._cmd_config(args)
         elif command == "providers":
@@ -156,12 +336,11 @@ class ChatRepl:
             self._cmd_checkpoint(args[0] if args else "")
         elif command == "sessions":
             self._cmd_sessions()
+        elif command == "setup":
+            self._cmd_setup()
         elif command == "verbose":
-            self._toggle_verbosity()
-        elif command == "thinking":
-            self.show_thinking = not self.show_thinking
-            state = "on — model thinking will stream live" if self.show_thinking else "off"
-            self.renderer.info(f"thinking display {state}")
+            self.verbosity = Verbosity(cycle_verbosity(self.verbosity.value))
+            self.renderer.info(f"verbosity: {self.verbosity.value}")
         elif command == "tools":
             self._cmd_tools()
         elif command == "status":
@@ -173,32 +352,84 @@ class ChatRepl:
 
     def _cmd_help(self) -> None:
         self.renderer.info(
-            "commands: /help /model [name] /config [set <key> <value>] /providers "
-            "/tools /status /sessions /checkpoint [label] /verbose /thinking /exit"
+            "commands: "
+            + "  ".join(
+                f"/{c}"
+                for c in (
+                    "model",
+                    "thinking",
+                    "config",
+                    "providers",
+                    "tools",
+                    "status",
+                    "sessions",
+                    "checkpoint",
+                    "setup",
+                    "verbose",
+                    "help",
+                    "exit",
+                )
+            )
         )
         self.renderer.line(
             DisplayLine(
                 level=LineLevel.dim,
                 icon="·",
-                text="config keys: model, approval, verbosity, max_concurrency, "
-                "max_requests, task_model.<type>",
+                text="keys: ⇧Tab mode · ^M model · ^T thinking · ^O verbose · ^G help · ^L clear",
+            )
+        )
+        self.renderer.line(
+            DisplayLine(
+                level=LineLevel.dim,
+                icon="·",
+                text="/config set keys: model, thinking, approval, verbosity, "
+                "max_concurrency, max_requests, task_model.<type>",
             )
         )
 
-    def _cmd_model(self, name: str | None) -> None:
-        if name is None:
-            self.renderer.info(f"default model: {self.harness.config.routing.default_model}")
-            for task_type, model in self.harness.config.routing.task_models.items():
-                self.renderer.line(
-                    DisplayLine(level=LineLevel.dim, icon="·", text=f"{task_type.value}: {model}")
-                )
-            return
+    def _cmd_model(self, name: str) -> None:
         try:
             message = apply_config_update(self.harness, "model", name)
         except SettingsError as exc:
             self.renderer.error(str(exc))
             return
         self.renderer.info(message)
+
+    def _set_thinking(self, level: str) -> None:
+        try:
+            message = apply_config_update(self.harness, "thinking", level)
+        except SettingsError as exc:
+            self.renderer.error(str(exc))
+            return
+        self.renderer.info(message)
+
+    def _cmd_model_selector(self) -> None:  # pragma: no cover - TTY dialog
+        """Arrow-key model picker; falls back gracefully without a TTY."""
+        from om_harness.config.user_settings import apply_model, available_model_strings
+
+        options = available_model_strings(self.harness)
+        if not options:
+            self.renderer.error("no models available — run /setup")
+            return
+        values = [(name, f"{name}  ({label})") for name, label in options]
+        try:
+            from prompt_toolkit.shortcuts import radiolist_dialog
+
+            chosen = radiolist_dialog(
+                title="✦ select model",
+                text="Arrow keys to move, Enter to select, Esc to cancel.",
+                values=values,
+                default=self.model if self.model in dict(values) else values[0][0],
+            ).run()
+        except Exception:
+            chosen = None
+        if not chosen:
+            self.renderer.line(DisplayLine(level=LineLevel.dim, icon="·", text="model unchanged"))
+            return
+        try:
+            self.renderer.info(apply_model(self.harness, chosen))
+        except SettingsError as exc:
+            self.renderer.error(str(exc))
 
     def _cmd_config(self, args: list[str]) -> None:
         if not args:
@@ -262,9 +493,107 @@ class ChatRepl:
         )
         self.renderer.info(f"checkpoint saved: {checkpoint.checkpoint_id}")
 
-    def _toggle_verbosity(self) -> None:
-        self.verbosity = (
-            Verbosity.compact if self.verbosity != Verbosity.compact else Verbosity.verbose
+    # -- /setup wizard -------------------------------------------------------
+
+    def _cmd_setup(self) -> None:  # pragma: no cover - TTY wizard
+        """Guided configuration: provider → model → mode → verbosity → thinking."""
+        if not self._setup_provider():
+            return
+        self._cmd_model_selector()
+        self._setup_choice(
+            "approval mode",
+            ("ask", "auto", "deny"),
+            self.mode,
+            lambda v: apply_config_update(self.harness, "approval", v),
         )
-        state = "verbose" if self.verbosity == Verbosity.verbose else "compact"
-        self.renderer.info(f"verbosity: {state}")
+        self._setup_choice(
+            "verbosity",
+            ("compact", "verbose", "debug"),
+            self.verbosity.value,
+            lambda v: apply_config_update(self.harness, "verbosity", v),
+        )
+        self._setup_choice(
+            "thinking level",
+            tuple(level.value for level in self._thinking_levels()),
+            self.thinking,
+            lambda v: apply_config_update(self.harness, "thinking", v),
+        )
+        self.renderer.info("setup complete — settings persisted to ~/.om-harness/")
+
+    @staticmethod
+    def _thinking_levels() -> list[Any]:
+        from om_harness.config.loader import ThinkingLevel
+
+        return list(ThinkingLevel)
+
+    def _setup_choice(
+        self, title: str, options: tuple[str, ...], current: str, apply: Any
+    ) -> None:  # pragma: no cover - TTY dialog
+        try:
+            from prompt_toolkit.shortcuts import radiolist_dialog
+
+            chosen = radiolist_dialog(
+                title=f"✦ {title}",
+                values=[(o, o) for o in options],
+                default=current if current in options else options[0],
+            ).run()
+        except Exception:
+            chosen = None
+        if not chosen:
+            return
+        try:
+            self.renderer.info(apply(chosen))
+        except SettingsError as exc:
+            self.renderer.error(str(exc))
+
+    def _setup_provider(self) -> bool:  # pragma: no cover - TTY wizard
+        """Optionally add a custom OpenAI-compatible provider. True to continue."""
+        self.renderer.line(
+            DisplayLine(
+                level=LineLevel.dim,
+                icon="·",
+                text="providers with env keys are detected automatically; "
+                "add a custom endpoint (LM Studio, NVIDIA, …) if you like",
+            )
+        )
+        try:
+            from prompt_toolkit.shortcuts import confirm, input_dialog
+
+            if not confirm(message="Add an OpenAI-compatible endpoint?"):
+                return True
+            name = input_dialog(title="provider name", text="e.g. lm-studio").run()
+            if not name:
+                return True
+            base_url = input_dialog(title="base URL", text="e.g. http://127.0.0.1:8080/v1").run()
+            if not base_url:
+                return True
+            api_key_env = input_dialog(
+                title="API key env var", text="env var name (empty for local gateways)"
+            ).run()
+            allow = confirm(message="Is this a local/private endpoint (127.0.0.1, 192.168.x…)?")
+            from om_harness.config.user_settings import add_custom_provider
+
+            self.renderer.info(
+                add_custom_provider(
+                    name=name.strip(),
+                    base_url=base_url.strip(),
+                    api="openai-completions",
+                    api_key_env=(api_key_env or "").strip() or None,
+                    allow_local=bool(allow),
+                )
+            )
+            return True
+        except Exception as exc:
+            self.renderer.error(f"setup provider step skipped: {exc}")
+            return True
+
+
+class _ModelSelectorRequested(Exception):
+    """Internal signal: Ctrl+M pressed inside the prompt."""
+
+
+class _PlainSession:
+    """Fallback prompt for non-TTY environments (piped input, tests)."""
+
+    def prompt(self, **kwargs: Any) -> str:
+        return input("om> ")

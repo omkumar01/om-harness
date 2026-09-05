@@ -33,6 +33,41 @@ class RunnerError(Exception):
     pass
 
 
+# Thinking budgets aligned with PydanticAI's own anthropic budget map.
+THINKING_BUDGETS: dict[str, int] = {"low": 2048, "medium": 10000, "high": 16384}
+
+# OpenAI model families that accept reasoning_effort (others reject it).
+_OPENAI_REASONING_FAMILIES = ("o1", "o3", "o4", "gpt-5")
+
+
+def thinking_settings(provider: str, model_name: str, level: str) -> dict[str, Any] | None:
+    """Map a thinking level to provider model settings.
+
+    Graceful degradation by design: returns ``None`` when the provider or
+    model cannot express the level, so unsupported providers simply run
+    without thinking settings instead of failing the request.
+    """
+    if level == "off":
+        return None
+    budget = THINKING_BUDGETS.get(level)
+    if budget is None:
+        return None
+
+    if provider == "anthropic":
+        return {"thinking": {"type": "enabled", "budget_tokens": budget}}
+    if provider == "google":
+        return {
+            "google_thinking_config": {
+                "include_thoughts": True,
+                "thinking_budget": budget,
+            }
+        }
+    if provider == "openai" and model_name.startswith(_OPENAI_REASONING_FAMILIES):
+        effort = {"low": "low", "medium": "medium", "high": "high"}[level]
+        return {"openai_reasoning_effort": effort}
+    return None
+
+
 def _usage_limits(budget: BudgetConfig) -> Any | None:
     from pydantic_ai.usage import UsageLimits
 
@@ -143,6 +178,10 @@ class AgentRunner:
                 task_id=task.id,
                 agent=task.role,
             )
+        parsed = self.provider_registry.resolve_model(model_str)
+        thinking = thinking_settings(parsed.provider, parsed.model_name, self.config.thinking.value)
+        if thinking is not None:
+            stream_kwargs["model_settings"] = thinking
 
         try:
             async with asyncio.timeout(self.config.agent_timeout_seconds):

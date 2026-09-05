@@ -66,26 +66,29 @@ def test_slash_config_set_updates_and_persists(tmp_path: Any, home: Any, capsys:
     assert load_config(harness.repo_root, env={}).routing.default_model == "openai:gpt-4o"
 
 
-def test_slash_model_shows_current(tmp_path: Any, home: Any, capsys: Any) -> None:
-    repl, _ = _repl(tmp_path, home)
+def test_slash_model_selector_fallback(tmp_path: Any, home: Any, capsys: Any) -> None:
+    """/model with no args opens the selector; without a TTY it no-ops safely."""
+    repl, harness = _repl(tmp_path, home)
     assert repl._slash_command("/model")
     out = capsys.readouterr().out
-    assert "default model" in out
+    assert "model unchanged" in out  # selector can't open without a TTY
+    assert harness.config.routing.default_model  # nothing broken
 
 
-def test_slash_model_sets_value(tmp_path: Any, home: Any, capsys: Any) -> None:
-    repl, harness = _repl(tmp_path, home)
-    assert repl._slash_command("/model openai:gpt-4o")
-    assert harness.config.routing.default_model == "openai:gpt-4o"
-
-
-def test_slash_thinking_toggles(tmp_path: Any, home: Any, capsys: Any) -> None:
+def test_slash_thinking_shows_level(tmp_path: Any, home: Any, capsys: Any) -> None:
     repl, _ = _repl(tmp_path, home)
-    assert repl.show_thinking is False
     assert repl._slash_command("/thinking")
-    assert repl.show_thinking is True
-    assert repl._slash_command("/thinking")
-    assert repl.show_thinking is False
+    assert "thinking level: off" in capsys.readouterr().out
+
+
+def test_slash_thinking_sets_level(tmp_path: Any, home: Any, capsys: Any) -> None:
+    repl, harness = _repl(tmp_path, home)
+    assert repl._slash_command("/thinking medium")
+    assert harness.config.thinking == "medium"
+    # Persisted to user config.
+    from om_harness.config.loader import load_config
+
+    assert load_config(harness.repo_root, env={}).thinking == "medium"
 
 
 def test_slash_verbose_toggles(tmp_path: Any, home: Any) -> None:

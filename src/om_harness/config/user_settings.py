@@ -11,8 +11,8 @@ import json
 import tomllib
 from typing import Any
 
-from om_harness.config.loader import ApprovalPolicy, Verbosity
-from om_harness.config.paths import user_config_file
+from om_harness.config.loader import ApprovalPolicy, ThinkingLevel, Verbosity
+from om_harness.config.paths import user_config_file, user_models_json
 from om_harness.models.task import TaskType
 from om_harness.providers.registry import ProviderError
 
@@ -61,6 +61,18 @@ def apply_config_update(harness: Any, key: str, value: str) -> str:
         config.verbosity = verbosity
         updates = {"verbosity": verbosity.value}
         message = f"verbosity set to {verbosity.value}"
+
+    elif key == "thinking":
+        try:
+            level = ThinkingLevel(value)
+        except ValueError as exc:
+            raise SettingsError(
+                f"invalid thinking level {value!r}; "
+                f"valid: {', '.join(lv.value for lv in ThinkingLevel)}"
+            ) from exc
+        config.thinking = level
+        updates = {"thinking": level.value}
+        message = f"thinking level set to {level.value}"
 
     elif key == "max_concurrency":
         parsed = int(value)
@@ -154,3 +166,93 @@ def _dump_toml(table: dict[str, Any], prefix: str = "") -> str:
         lines.append(f"[{section}]")
         lines.append(_dump_toml(value, prefix=f"{section}."))
     return "\n".join(lines).strip() + "\n"
+
+
+# -- model selector -----------------------------------------------------------
+
+
+def apply_model(harness: Any, model_str: str) -> str:
+    """Select a model from the selector dialog: validate, apply, persist."""
+    return apply_config_update(harness, "model", model_str)
+
+
+def available_model_strings(harness: Any) -> list[tuple[str, str]]:
+    """All selectable model strings with a status label, for the selector UI."""
+    registry = harness.provider_registry
+    options: list[tuple[str, str]] = []
+    for info in registry.available_providers():
+        label = "available" if info.available else "no API key"
+        options.append((info.default_model, f"{info.name} · {label}"))
+        if info.strong_model != info.default_model:
+            options.append((info.strong_model, f"{info.name} · strong · {label}"))
+    for custom in registry.custom_provider_summaries():
+        for model in custom["models"]:
+            label = "available" if custom["available"] else "unavailable"
+            options.append((f"{custom['name']}:{model['id']}", f"{custom['name']} · {label}"))
+    return options
+
+
+# -- provider setup (wizard) --------------------------------------------------
+
+
+def add_custom_provider(
+    *,
+    name: str,
+    base_url: str,
+    api: str = "openai-completions",
+    api_key_env: str | None = None,
+    api_key: str | None = None,
+    allow_local: bool = False,
+    models: list[dict[str, Any]] | None = None,
+) -> str:
+    """Register a custom provider in ~/.om-harness/config/models.json.
+
+    Validates the merged result (URL safety policy, name collisions, api
+    kind) and raises ``SettingsError`` without writing anything on invalid
+    input. Returns a confirmation message.
+    """
+    from om_harness.providers.models_json import ModelsJsonConfig, ModelsJsonError
+
+    if not name or not name.replace("-", "").replace("_", "").isalnum():
+        raise SettingsError(f"invalid provider name {name!r}: use letters, digits, '-' or '_'")
+    model_list = models or [{"id": "default"}]
+    doc: dict[str, Any] = {
+        "providers": {
+            name: {
+                "baseUrl": base_url,
+                "api": api,
+                "allowLocal": allow_local,
+                "models": model_list,
+            }
+        }
+    }
+    if api_key_env:
+        doc["providers"][name]["apiKeyEnv"] = api_key_env
+    if api_key:
+        doc["providers"][name]["apiKey"] = api_key
+
+    try:
+        # Validate the provider standalone first for a focused error message.
+        ModelsJsonConfig.model_validate(doc).validate_policy()
+    except ModelsJsonError as exc:
+        raise SettingsError(str(exc)) from exc
+
+    # Merge into the existing user-level models.json.
+    path = user_models_json()
+    existing: dict[str, Any] = {"providers": {}}
+    if path.is_file():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            existing = {"providers": loaded.get("providers") or {}}
+        except (json.JSONDecodeError, OSError) as exc:
+            raise SettingsError(f"cannot read {path}: {exc}") from exc
+    existing["providers"].update(doc["providers"])
+    try:
+        ModelsJsonConfig.model_validate(existing).validate_policy()
+    except ModelsJsonError as exc:
+        raise SettingsError(f"merge failed: {exc}") from exc
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+    ids = ", ".join(m["id"] for m in model_list)
+    return f"provider {name!r} saved to {path} (models: {ids})"

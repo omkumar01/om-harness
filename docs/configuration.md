@@ -29,8 +29,22 @@ The delivered install keeps all configuration and caches here
 Sessions and checkpoints stay repository-local (`<repo>/.om-harness/`,
 gitignored). Inside the interactive chat, `/config set <key> <value>`
 validates the change, applies it to the live session, and persists it to
-`config.toml` — keys: `model`, `approval`, `verbosity`, `max_concurrency`,
-`max_requests`, `task_model.<type>`.
+`config.toml` — keys: `model`, `thinking`, `approval`, `verbosity`,
+`max_concurrency`, `max_requests`, `task_model.<type>`.
+
+### Thinking level
+
+`thinking = "off" | "low" | "medium" | "high"` controls how much reasoning
+budget the model gets. The runner maps it to each provider's native setting:
+
+| Provider | Setting applied |
+|---|---|
+| Anthropic | `thinking = {type: "enabled", budget_tokens: 2048/10000/16384}` |
+| Google | `google_thinking_config = {include_thoughts: true, thinking_budget: …}` |
+| OpenAI | `openai_reasoning_effort = "low"/"medium"/"high"` (reasoning models only) |
+| others | no settings sent (graceful degradation) |
+
+Set it with `/config set thinking medium`, `/thinking medium`, or `Ctrl+T`.
 
 ## Configuration file
 

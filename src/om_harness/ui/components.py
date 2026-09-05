@@ -241,6 +241,70 @@ def turn_activity(events: list[Event]) -> TurnActivity:
     return activity
 
 
+# -- interactive-shell chrome (pure builders, unit-testable) -------------------
+
+
+def usage_bar(used_tokens: int, max_tokens: int, width: int = 10) -> str:
+    """Ten-segment context gauge: ▮▮▮▯▯▯ 3k/20k."""
+    if max_tokens <= 0:
+        ratio = 0.0
+    else:
+        ratio = max(0.0, min(1.0, used_tokens / max_tokens))
+    filled = round(ratio * width)
+    bar = "▮" * filled + "▯" * (width - filled)
+
+    def fmt(n: int) -> str:
+        return f"{n / 1000:.0f}k" if n >= 1000 else str(n)
+
+    return f"{bar} {fmt(used_tokens)}/{fmt(max_tokens)}"
+
+
+def header_line(model: str, mode: str, thinking: str, width: int = 64) -> str:
+    """Top border of the input box with state baked in."""
+    state = f"om · {model} · {mode} · {thinking}"
+    if len(state) > width - 4:
+        state = state[: width - 7] + "…"
+    filler = "─" * max(0, width - len(state) - 4)
+    return f"╭─ {state} {filler}╮"
+
+
+def status_bar(
+    model: str,
+    thinking: str,
+    mode: str,
+    used_tokens: int,
+    max_tokens: int,
+    hint: str | None = None,
+) -> str:
+    """Always-on status line: model, thinking level, mode, gauge, hints."""
+    parts = [
+        f"model {model}",
+        f"thinking {thinking}",
+        mode,
+        f"context {usage_bar(used_tokens, max_tokens)}",
+    ]
+    if hint:
+        parts.append(hint)
+    else:
+        parts.append("^M model · ^T thinking · ⇧Tab mode · ^G help")
+    return "  ·  ".join(parts)
+
+
+def welcome_panel(version: str, model: str, providers: list[str], first_run: bool) -> str:
+    """Plain-text body of the welcome panel (renderer wraps it in a Panel)."""
+    provider_text = ", ".join(providers) if providers else "none — add keys or models.json"
+    lines = [
+        f"✦ om-harness {version}",
+        f"model: {model}",
+        f"providers: {provider_text}",
+        "",
+        "type a request, / for commands, /setup for guided configuration",
+    ]
+    if first_run:
+        lines.insert(1, "first run — config created under ~/.om-harness/")
+    return "\n".join(lines)
+
+
 __all__ = [
     "DisplayLine",
     "LineLevel",
@@ -248,6 +312,10 @@ __all__ = [
     "TaskSummaryView",
     "TurnActivity",
     "event_to_display",
+    "header_line",
     "outcome_to_summary",
+    "status_bar",
     "turn_activity",
+    "usage_bar",
+    "welcome_panel",
 ]

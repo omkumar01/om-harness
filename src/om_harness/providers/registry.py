@@ -17,6 +17,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from om_harness.providers.base import BY_NAME, PROVIDERS, ModelSpec, ProviderInfo
+from om_harness.providers.mock import make_echo_model
 from om_harness.providers.models_json import ModelsJsonConfig, validate_provider_url
 
 # Placeholder key for local gateways that need a non-empty Authorization
@@ -205,8 +206,6 @@ class ProviderRegistry:
         provider = BY_NAME[parsed.provider]
 
         if provider.name == "mock":
-            from om_harness.providers.mock import make_echo_model
-
             return make_echo_model()
 
         if not self.is_available(provider.name):
