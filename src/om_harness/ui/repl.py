@@ -78,6 +78,22 @@ class ChatRepl:
     def mode(self) -> str:
         return self.harness.config.approval.policy.value
 
+    def _active(self) -> tuple[str, str]:
+        """(provider, model) that the NEXT turn will actually use.
+
+        Goes through the router, so it reflects /model selections, per-task
+        routing, and any fallback when the configured model is unavailable.
+        """
+        from om_harness.models.task import TaskType
+
+        try:
+            model = self.harness.router.select(TaskType.general)
+            provider = self.harness.provider_registry.resolve_model(model).provider
+        except Exception:
+            model = self.harness.config.routing.default_model
+            provider = "—"
+        return provider, model
+
     def _context_used(self) -> int:
         return self.total_usage.input_tokens
 
@@ -194,13 +210,16 @@ class ChatRepl:
     # boxed header always shows the live model / mode / thinking state.
 
     def _prompt_message(self) -> str:
-        header = header_line(self.model, mode_glyph(self.mode), thinking_glyph(self.thinking))
+        _provider, model = self._active()
+        header = header_line(model, mode_glyph(self.mode), thinking_glyph(self.thinking))
         return header + "\n│ ❯ "
 
     def _status_bar(self) -> str:
         hint = self._typing_hint()
+        provider, model = self._active()
         return status_bar(
-            self.model,
+            provider,
+            model,
             self.thinking,
             mode_glyph(self.mode),
             self._context_used(),

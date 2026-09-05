@@ -94,13 +94,16 @@ def test_usage_bar_rendering() -> None:
     assert bar.count("▮") == 10
 
 
-def test_status_bar_always_shows_model_and_thinking() -> None:
+def test_status_bar_always_shows_provider_model_thinking_mode() -> None:
     from om_harness.ui.components import status_bar
 
-    bar = status_bar("openai:gpt-4o", "medium", "⏵⏵ auto", 1000, 200_000)
-    assert "model openai:gpt-4o" in bar
+    bar = status_bar("lm-studio", "lm-studio:ornith-1.0-9b", "medium", "⏵⏵ auto", 1000, 200_000)
+    assert "provider lm-studio" in bar
+    assert "model lm-studio:ornith-1.0-9b" in bar
     assert "thinking medium" in bar
     assert "⏵⏵ auto" in bar
+    assert "context" in bar
+    assert "^M model" in bar  # shortcut hint always visible
 
 
 def test_header_line_shows_state() -> None:
@@ -241,9 +244,49 @@ def test_prompt_message_contains_header_and_input_marker(tmp_path: Any, home: An
 def test_status_bar_contains_live_state(tmp_path: Any, home: Any) -> None:
     repl = _repl_for(tmp_path, home)
     bar = repl._status_bar()
-    assert f"model {repl.model}" in bar
+    # The bar shows what the next turn will actually use (router-resolved):
+    # with no keys configured, the default openai model falls back to mock.
+    assert "provider mock" in bar
+    assert "model mock:echo" in bar
     assert f"thinking {repl.thinking}" in bar
     assert "context" in bar
+    assert "^M model" in bar
+
+
+def test_status_bar_reflects_selected_model(tmp_path: Any, home: Any) -> None:
+    import json
+    import subprocess
+
+    subprocess.run(
+        ["git", "init", "-q"], cwd=tmp_path, check=True, capture_output=True, shell=False
+    )
+    (tmp_path / "models.json").write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "lm-studio": {
+                        "baseUrl": "http://127.0.0.1:8080/v1",
+                        "api": "openai-completions",
+                        "allowLocal": True,
+                        "models": [{"id": "ornith-1.0-9b"}],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    from om_harness.config.user_settings import apply_config_update
+    from om_harness.harness import Harness
+    from om_harness.ui.repl import ChatRepl
+
+    harness = Harness(repo_root=tmp_path, env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id)
+    apply_config_update(harness, "model", "lm-studio:ornith-1.0-9b")
+
+    bar = repl._status_bar()
+    assert "provider lm-studio" in bar
+    assert "model lm-studio:ornith-1.0-9b" in bar
 
 
 def test_show_welcome_prints_panel(tmp_path: Any, home: Any, capsys: Any) -> None:

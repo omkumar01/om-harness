@@ -48,9 +48,10 @@ decision is visible.
 - **CLI-first**: `init`, `run`, `chat`, `agent`, `providers`, `doctor`,
   `status`, `resume`, `config` — each with `--json` output for automation.
 - **Multi-provider** via [PydanticAI](https://ai.pydantic.dev): OpenAI,
-  Anthropic, Google/Gemini through one interface; task-type routing
-  (cheap models to explore, strong models to implement), explicit overrides,
-  and a fully offline `mock:` provider for demos and tests.
+  Anthropic, Google/Gemini plus any OpenAI-compatible endpoint through one
+  interface; your selected model always wins, with per-task routing and
+  automatic fallback when a provider is unavailable — plus a fully offline
+  `mock:` provider for demos and tests.
 - **Async orchestration**: parallel fan-out/fan-in with deterministic
   aggregation, per-task timeouts, retries with backoff, and cancellation.
 - **Repository tools**: file list/read/search/write/edit, safe shell
@@ -115,8 +116,10 @@ om Fixed add() in calc.py — tests pass.
 ```
 
 - **Always-on status**: the input header and the persistent status bar show
-  the active model, thinking level, approval mode, and a live context
-  gauge (`context ▮▮▮▯▯… 32k/200k`) at all times.
+  the approval mode, the active provider and model (what the next turn will
+  actually use), the thinking level, and a live context
+  gauge (`context ▮▮▮▯▯… 32k/200k`) at all times — plus the `Ctrl+M` model
+  selector shortcut.
 - **Live activity**: tool calls, commands, and approvals stream as they
   happen; per-turn summaries show files read, files modified, commands run,
   and tokens spent. Replies stream token-by-token from streaming models.

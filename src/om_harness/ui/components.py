@@ -269,6 +269,7 @@ def header_line(model: str, mode: str, thinking: str, width: int = 64) -> str:
 
 
 def status_bar(
+    provider: str,
     model: str,
     thinking: str,
     mode: str,
@@ -276,11 +277,13 @@ def status_bar(
     max_tokens: int,
     hint: str | None = None,
 ) -> str:
-    """Always-on status line: model, thinking level, mode, gauge, hints."""
+    """Always-on status line: approval mode, provider, model, thinking,
+    context gauge, hints — visible at all times."""
     parts = [
+        mode,
+        f"provider {provider}",
         f"model {model}",
         f"thinking {thinking}",
-        mode,
         f"context {usage_bar(used_tokens, max_tokens)}",
     ]
     if hint:

@@ -81,10 +81,49 @@ def test_explicit_override_wins() -> None:
 
 
 def test_configured_task_model_used_for_that_type_only() -> None:
-    config = RoutingConfig(task_models={"explore": "openai:gpt-4o-mini"})
+    config = RoutingConfig(default_model="openai:gpt-4o")
     router = ModelRouter(config, ProviderRegistry(env={"OPENAI_API_KEY": FAKE_OPENAI_KEY}))
-    assert router.select(TaskType.explore) == "openai:gpt-4o-mini"
-    assert router.select(TaskType.implement) != "openai:gpt-4o-mini"
+    assert router.select(TaskType.explore, override="openai:gpt-4o-mini") == "openai:gpt-4o-mini"
+    assert router.select(TaskType.implement) == "openai:gpt-4o"  # default honored
+
+
+def test_selected_default_model_wins_over_auto_route() -> None:
+    """The regression: /model selections must reach the runner even when
+    auto_route is enabled (it is on by default)."""
+    config = RoutingConfig(default_model="openai:gpt-4o")
+    router = ModelRouter(config, ProviderRegistry(env={"OPENAI_API_KEY": FAKE_OPENAI_KEY}))
+    for task_type in TaskType:
+        assert router.select(task_type) == "openai:gpt-4o"
+
+
+def test_selected_custom_provider_model_wins() -> None:
+    """A models.json provider selected as default must be used directly."""
+    from om_harness.providers.models_json import ModelsJsonConfig
+
+    custom = ModelsJsonConfig.model_validate(
+        {
+            "providers": {
+                "lm-studio": {
+                    "baseUrl": "http://127.0.0.1:8080/v1",
+                    "api": "openai-completions",
+                    "allowLocal": True,
+                    "models": [{"id": "ornith-1.0-9b"}],
+                }
+            }
+        }
+    )
+    config = RoutingConfig(default_model="lm-studio:ornith-1.0-9b")
+    router = ModelRouter(config, ProviderRegistry(env={}, custom=custom))
+    for task_type in TaskType:
+        assert router.select(task_type) == "lm-studio:ornith-1.0-9b"
+
+
+def test_unavailable_default_falls_back_to_auto_route() -> None:
+    """Default whose provider has no key still falls back automatically."""
+    config = RoutingConfig(default_model="openai:gpt-4o")
+    router = ModelRouter(config, ProviderRegistry(env={"ANTHROPIC_API_KEY": FAKE_ANTHROPIC_KEY}))
+    model = router.select(TaskType.implement)
+    assert model.startswith("anthropic:")
 
 
 def test_auto_route_prefers_available_providers() -> None:

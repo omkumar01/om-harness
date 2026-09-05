@@ -3,9 +3,10 @@
 Order of precedence for ``select``:
 1. explicit override argument (user asked for this model),
 2. configured per-task-type models (``routing.task_models``),
-3. automatic routing across available providers (cheap models for explore,
+3. the configured ``default_model`` — honored whenever its provider is
+   available, so an explicit user selection always wins,
+4. automatic routing across available providers (cheap models for explore,
    strong models for implement/review),
-4. configured ``default_model``,
 5. the mock provider (fully offline).
 """
 
@@ -14,7 +15,7 @@ from __future__ import annotations
 from om_harness.config.loader import RoutingConfig
 from om_harness.models.task import TaskType
 from om_harness.providers.base import BY_NAME
-from om_harness.providers.registry import ProviderRegistry
+from om_harness.providers.registry import ProviderError, ProviderRegistry
 
 # Task types that benefit from stronger (usually costlier) models.
 STRONG_TASK_TYPES = {TaskType.implement, TaskType.review}
@@ -34,6 +35,14 @@ class ModelRouter:
             configured = self.config.task_models[task_type]
             self.registry.resolve_model(configured)
             return configured
+
+        # An explicitly configured default model wins whenever it is usable.
+        try:
+            parsed = self.registry.resolve_model(self.config.default_model)
+        except ProviderError:
+            parsed = None
+        if parsed is not None and self.registry.is_available(parsed.provider):
+            return self.config.default_model
 
         if self.config.auto_route:
             return self._auto_route(task_type)
