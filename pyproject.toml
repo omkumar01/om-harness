@@ -30,7 +30,7 @@ dependencies = [
 web = ["fastapi>=0.111", "uvicorn>=0.30"]
 
 [project.scripts]
-om-harness = "om_harness.cli.app:main"
+om-harness = "om_harness.cli.app:run_app"
 
 [dependency-groups]
 dev = [

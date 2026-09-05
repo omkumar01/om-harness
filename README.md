@@ -127,6 +127,13 @@ Interactive chat:
 om-harness chat                 # then: /tools, /status, or just talk
 ```
 
+No keys at all? Watch a complete coding flow (inspect → edit → test) run
+offline through a scripted model:
+
+```bash
+uv run python scripts/demo.py
+```
+
 Automation (exit code reflects run status):
 
 ```bash

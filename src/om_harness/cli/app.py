@@ -50,6 +50,15 @@ def main(
     """om-harness: orchestrate coding agents in your repository."""
 
 
+def run_app() -> None:
+    """Console-script entry point: dispatch the Typer application."""
+    app()
+
+
+if __name__ == "__main__":  # python -m om_harness.cli.app
+    app()
+
+
 def _repo_root(repo: str | None) -> Path:
     return Path(repo).resolve() if repo else Path.cwd().resolve()
 

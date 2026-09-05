@@ -85,6 +85,7 @@ These are enforced in review (see [docs/architecture.md](docs/architecture.md)):
 class FormatCodeArgs(BaseModel):
     path: str = Field(description="Repo-relative path")
 
+
 class FormatCode(BaseTool[FormatCodeArgs]):
     name = "format_code"
     description = "Run the repository formatter on one file."

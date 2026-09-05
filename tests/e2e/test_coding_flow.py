@@ -39,8 +39,6 @@ def scripted_coder(final_answer: str) -> Any:
     """Model that: reads calc.py, edits the bug, runs tests, then answers."""
 
     def make() -> FunctionModel:
-        step = {"n": 0}
-
         async def respond(messages: list[ModelMessage], agent_info: Any) -> ModelResponse:
             saw_tool_results = sum(
                 1

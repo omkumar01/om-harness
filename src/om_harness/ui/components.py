@@ -119,15 +119,17 @@ _VERBOSE_EXTRA = {
 
 def _describe(event: Event) -> str:
     data = event.data
+    # `agent` and `task_id` may live as top-level event fields or in data.
+    agent = event.agent or data.get("agent")
     if event.type == EventType.PLAN_CREATED:
         return (
             f"plan: {data.get('strategy')} with {data.get('task_count')} task(s) "
             f"— {data.get('rationale', '')}"
         )
     if event.type == EventType.AGENT_STARTED:
-        return f"agent {data.get('agent')} starting (model {data.get('model')})"
+        return f"agent {agent} starting (model {data.get('model')})"
     if event.type == EventType.AGENT_COMPLETED:
-        return f"agent {data.get('agent')} finished"
+        return f"agent {agent} finished"
     if event.type == EventType.TOOL_CALL_STARTED:
         args = data.get("arguments") or {}
         rendered = ", ".join(f"{k}={v!r}" for k, v in args.items())[:120]
@@ -144,6 +146,8 @@ def _describe(event: Event) -> str:
         return f"checkpoint saved ({data.get('label')})"
     if event.type == EventType.RUN_STARTED:
         return f"goal: {data.get('goal')}"
+    if event.type == EventType.RUN_COMPLETED:
+        return "run completed"
     if event.type == EventType.RUN_FAILED:
         return f"run failed: {data.get('error')}"
     if event.type == EventType.USAGE:
