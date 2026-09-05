@@ -25,3 +25,7 @@ htmlcov/
 # Editors
 .idea/
 .vscode/
+
+# Local agent tooling state
+.mimosa/
+.zcode/
