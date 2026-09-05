@@ -231,3 +231,15 @@ async def test_thinking_extracted_from_non_streaming_result(tmp_repo: Any) -> No
     assert result.status == TaskStatus.completed
     completed = [e for e in bus.history if e.type == EventType.AGENT_COMPLETED]
     assert "pondering" in completed[-1].data["thinking"]
+
+
+def test_unset_budget_yields_unlimited_limits() -> None:
+    """PydanticAI's UsageLimits defaults request_limit to 50 when left
+    implicit; an unset budget must explicitly mean unlimited."""
+    from om_harness.runtime.runner import _usage_limits
+
+    limits = _usage_limits(HarnessConfig().budget)
+    assert limits.request_limit is None
+    assert limits.input_tokens_limit is None
+    assert limits.output_tokens_limit is None
+    assert limits.cost_limit is None

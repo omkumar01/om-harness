@@ -56,7 +56,8 @@ decision is visible.
 - **Async orchestration**: parallel fan-out/fan-in with deterministic
   aggregation, per-task timeouts, retries with backoff, and cancellation.
 - **Repository tools**: file list/read/search/write/edit, safe shell
-  execution, git status/diff/log/show/add/commit/restore, test-runner
+  execution (with native pipe and redirection support — no shell process
+  involved), git status/diff/log/show/add/commit/restore, test-runner
   detection and execution, repo info — all schema'd, timeout-bounded, and
   output-capped.
 - **Durable sessions**: state in `.om-harness/` (gitignored), atomic writes,

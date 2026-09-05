@@ -107,10 +107,13 @@ are the seams for a hosted/remote implementation later.
 - the redactor scrubs values *and* sensitive key names at the event bus, so
   every consumer is covered once.
 
-**Cost.** `run_shell` cannot run pipelines or redirections (`|`, `>`,
-`;`). Users needing them run explicit script files. This trades raw power
-for an auditable, injection-resistant surface — a deliberate v1 posture
-that can be revisited with command allowlists or an interactive shell mode.
+**Cost.** No `/bin/sh` is ever involved: `run_shell` implements the safe
+subset of shell syntax natively — pipelines (`a | b`), `2>&1` merging, and
+`>` / `>>` redirection into repository files are parsed and executed as
+chained argv processes. Constructs that genuinely require a shell
+(`;`, `&&`, `<`, `$()`, backticks, background jobs) remain rejected, as do
+known catastrophic commands. This trades a slice of raw power for an
+auditable, injection-resistant surface.
 
 ## Tradeoff 7: One event bus for everything
 

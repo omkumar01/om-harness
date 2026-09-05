@@ -68,27 +68,23 @@ def thinking_settings(provider: str, model_name: str, level: str) -> dict[str, A
     return None
 
 
-def _usage_limits(budget: BudgetConfig) -> Any | None:
+def _usage_limits(budget: BudgetConfig) -> Any:
+    """Build explicit UsageLimits from the budget config.
+
+    Always returns an instance with unset axes as ``None`` (= unlimited):
+    PydanticAI's UsageLimits defaults ``request_limit`` to 50 when the limit
+    is left implicit, which surfaced as spurious "request_limit of 50"
+    failures for users who never configured a budget.
+    """
+    from decimal import Decimal
+
     from pydantic_ai.usage import UsageLimits
 
-    if not any(
-        (
-            budget.max_requests,
-            budget.max_input_tokens,
-            budget.max_output_tokens,
-            budget.max_cost_usd,
-        )
-    ):
-        return None
     return UsageLimits(
         request_limit=budget.max_requests,
         input_tokens_limit=budget.max_input_tokens,
         output_tokens_limit=budget.max_output_tokens,
-        cost_limit=(
-            __import__("decimal").Decimal(str(budget.max_cost_usd))
-            if budget.max_cost_usd is not None
-            else None
-        ),
+        cost_limit=(Decimal(str(budget.max_cost_usd)) if budget.max_cost_usd is not None else None),
     )
 
 
