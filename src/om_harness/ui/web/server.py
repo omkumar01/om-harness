@@ -127,7 +127,7 @@ def create_app(repo_root: Path, harness: Harness | None = None) -> FastAPI:
 
 
 def main() -> None:  # pragma: no cover - manual launch helper
-    import uvicorn  # type: ignore[import-not-found]
+    import uvicorn
 
     uvicorn.run(
         create_app(Path.cwd()),

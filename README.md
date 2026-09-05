@@ -110,6 +110,36 @@ Environment variables override the file: `OM_HARNESS_DEFAULT_MODEL`,
 `OM_HARNESS_VERBOSITY`, `OM_HARNESS_MAX_REQUESTS`. See
 [docs/configuration.md](docs/configuration.md).
 
+### Custom & local model providers
+
+Any OpenAI-compatible endpoint (LM Studio, Ollama, NVIDIA NIM, private
+deployments) can be registered through a `models.json` file — no code
+changes:
+
+```json
+{
+  "providers": {
+    "lm-studio": {
+      "baseUrl": "http://127.0.0.1:8080/v1",
+      "api": "openai-completions",
+      "allowLocal": true,
+      "models": [{ "id": "qwen3-32b", "contextWindow": 256000 }]
+    }
+  }
+}
+```
+
+Then use it like any built-in provider:
+
+```bash
+om-harness run "fix the parser bug" --model lm-studio:qwen3-32b
+```
+
+Keys are read from the environment via `apiKeyEnv` (inline `apiKey` is
+supported for local gateways and is auto-registered with the secret
+redactor). Loopback/private endpoints require the explicit `allowLocal`
+opt-in. Full field reference: [docs/configuration.md](docs/configuration.md).
+
 ## First run
 
 ```bash

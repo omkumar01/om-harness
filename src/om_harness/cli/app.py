@@ -255,17 +255,34 @@ def providers(
     repo: str = typer.Option(None, "--repo"),
     json_mode: bool = typer.Option(False, "--json"),
 ) -> None:
-    """List supported providers and their availability (from env keys)."""
+    """List providers (built-in and models.json) and their availability."""
     from om_harness.harness import Harness
 
     harness = Harness(repo_root=_repo_root(repo))
     infos = harness.provider_registry.available_providers()
+    customs = harness.provider_registry.custom_provider_summaries()
     if json_mode:
-        typer.echo(_json_payload({"providers": [i.model_dump(mode="json") for i in infos]}))
+        typer.echo(
+            _json_payload(
+                {
+                    "providers": [i.model_dump(mode="json") for i in infos],
+                    "custom_providers": customs,
+                }
+            )
+        )
         return
     for info in infos:
         state = "[green]available[/]" if info.available else "[dim]no API key[/]"
         console.print(f"{info.name:12} {state}  default: {info.default_model}")
+    for custom in customs:
+        state = "[green]available[/]" if custom["available"] else "[dim]unavailable[/]"
+        console.print(f"{custom['name']:12} {state}  ({custom['api']}, {custom['key_source']} key)")
+        for model in custom["models"]:
+            console.print(
+                f"  {custom['name']}:{model['id']}  "
+                f"[dim]tools={model['tool_calling']} vision={model['vision']} "
+                f"context={model['context_window'] or '?'}[/]"
+            )
 
 
 @app.command()

@@ -70,12 +70,15 @@ class SecretRedactor:
         self._secrets = sorted({s for s in secrets if s and len(s) >= 6}, key=len, reverse=True)
 
     @classmethod
-    def from_env(cls, env: Mapping[str, str]) -> SecretRedactor:
+    def from_env(cls, env: Mapping[str, str], extra: list[str] | None = None) -> SecretRedactor:
         secrets = [env[name] for name in STANDARD_KEY_VARS if env.get(name)]
         # Allow extra custom key vars, e.g. OM_HARNESS_EXTRA_API_KEY.
         secrets += [
             v for k, v in env.items() if k.startswith("OM_HARNESS_") and "API_KEY" in k and v
         ]
+        # Extra secrets from configuration (e.g. inline keys in models.json).
+        if extra:
+            secrets += [s for s in extra if s]
         return cls(secrets)
 
     def redact_text(self, text: str) -> str:

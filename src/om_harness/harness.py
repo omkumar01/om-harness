@@ -35,6 +35,7 @@ from om_harness.models.task import (
 )
 from om_harness.orchestration.coordinator import Coordinator
 from om_harness.orchestration.planner import Planner
+from om_harness.providers.models_json import load_models_json
 from om_harness.providers.registry import ProviderRegistry
 from om_harness.providers.router import ModelRouter
 from om_harness.runtime.bus import EventBus
@@ -109,12 +110,22 @@ class Harness:
                     )
                 }
             )
-        self.bus = bus or EventBus(redactor=SecretRedactor.from_env(self.env))
+
+        # Custom providers from models.json (local gateways, private
+        # endpoints). Loaded before the bus so inline keys can be registered
+        # with the secret redactor.
+        self.models_json = load_models_json(self.repo_root, self.env)
+
+        redactor = SecretRedactor.from_env(
+            self.env,
+            extra=self.models_json.inline_api_keys() if self.models_json else None,
+        )
+        self.bus = bus or EventBus(redactor=redactor)
         self.store = LocalStore(self.repo_root / STATE_DIR_NAME)
         self.sessions = SessionManager(self.store, self.bus)
         self.interactive = interactive
 
-        self.provider_registry = ProviderRegistry(self.env)
+        self.provider_registry = ProviderRegistry(self.env, custom=self.models_json)
         self.router = ModelRouter(self.config.routing, self.provider_registry)
         self.repo_index = RepoIndex(self.repo_root, self.config.context.max_repo_index_files)
         self.assembler = ContextAssembler(self.config, self.repo_index)
@@ -299,6 +310,7 @@ class Harness:
             "available_providers": [
                 info.name for info in self.provider_registry.available_providers() if info.available
             ],
+            "custom_providers": self.provider_registry.custom_provider_names,
             "sessions": len(repo_sessions),
             "checkpoints": checkpoints,
             "latest_session": (
@@ -358,6 +370,13 @@ class Harness:
                 detail=f"{detail} (keys read from environment only)",
             )
         )
+
+        if self.models_json is not None:
+            names = self.provider_registry.custom_provider_names
+            detail = f"{len(names)} custom provider(s) from models.json: {', '.join(names)}"
+        else:
+            detail = "no models.json found (built-in providers only)"
+        items.append(DoctorItem(name="models_json", ok=True, detail=detail))
 
         git_version = self._git_version()
         items.append(

@@ -98,3 +98,101 @@ om-harness doctor               # full environment diagnostic
 
 Invalid configuration fails loudly at startup (`ConfigError`) — never
 mid-run.
+
+## Custom providers via `models.json`
+
+Beyond the built-in providers, om-harness can use **any OpenAI-compatible
+endpoint** declared in a `models.json` file: local gateways (LM Studio,
+Ollama, llama.cpp server) or remote inference providers (NVIDIA NIM,
+Poolside, OpenRouter, private deployments).
+
+Location (first match wins):
+
+1. path in the `OM_HARNESS_MODELS_JSON` environment variable,
+2. `<repo>/models.json`,
+3. `<repo>/.om-harness/models.json`.
+
+Example (a full annotated copy lives at
+[examples/models.json](examples/models.json)):
+
+```json
+{
+  "providers": {
+    "lm-studio": {
+      "baseUrl": "http://127.0.0.1:8080/v1",
+      "api": "openai-completions",
+      "allowLocal": true,
+      "models": [
+        { "id": "qwen3-32b", "contextWindow": 256000, "maxTokens": 256000 }
+      ]
+    },
+    "nvidia": {
+      "baseUrl": "https://integrate.api.nvidia.com/v1",
+      "api": "openai-completions",
+      "apiKeyEnv": "NVIDIA_API_KEY",
+      "models": [
+        {
+          "id": "nvidia/nemotron-3-ultra-550b-a55b",
+          "toolCalling": true,
+          "contextWindow": 1000000,
+          "maxInputTokens": 1000000,
+          "maxOutputTokens": 256000
+        }
+      ]
+    }
+  }
+}
+```
+
+Fields (camelCase and snake_case are both accepted):
+
+| Field | Meaning |
+|---|---|
+| `baseUrl` | OpenAI-compatible base URL (`/v1` included) |
+| `api` | `openai-completions` (chat completions) or `openai-responses` |
+| `apiKeyEnv` | **Recommended:** name of the env variable holding the key |
+| `apiKey` | inline key — only sensible for local gateways; automatically registered with the secret redactor |
+| `allowLocal` | explicit opt-in required for `127.0.0.1`/`localhost`/private-range endpoints (see below) |
+| `models[].id` | model id used in model strings |
+| `models[].toolCalling` / `vision` / `reasoning` | capability flags (informational; shown by `om-harness providers`) |
+| `models[].contextWindow` / `maxTokens` / `maxInputTokens` / `maxOutputTokens` | limits (informational) |
+| `models[].url` | optional per-model base-URL override |
+| `models[].cost` | per-token costs (informational; zeros for local models) |
+
+Custom models become first-class model strings usable everywhere a model is
+accepted — CLI override, config routing, `task_models`, fallbacks:
+
+```bash
+export NVIDIA_API_KEY=...                      # or OM_HARNESS_MODELS_JSON keys
+om-harness run "fix the parser bug" --model lm-studio:qwen3-32b
+om-harness providers                           # lists custom providers + models
+```
+
+And in `om-harness.toml`:
+
+```toml
+[routing.task_models]
+explore = "lm-studio:qwen3-32b"
+implement = "nvidia:nvidia/nemotron-3-ultra-550b-a55b"
+```
+
+### URL safety policy
+
+Endpoints are validated when `models.json` is loaded and again before any
+client is constructed:
+
+- only `http://` and `https://` are allowed;
+- loopback (`127.0.0.1`, `::1`, `localhost`), private ranges (`10/8`,
+  `172.16/12`, `192.168/16`), link-local, and reserved hosts are **rejected
+  by default** — this is SSRF protection;
+- local inference servers are a legitimate case, so a provider may set
+  `"allowLocal": true` to opt in explicitly. The opt-in applies to that
+  provider's own endpoints only.
+
+### Key handling
+
+Prefer `apiKeyEnv` and keep keys in your environment. Inline `apiKey`
+values are accepted (many local gateways require a placeholder) but are
+treated as secrets: they are registered with the secret redactor, so they
+never appear in events, logs, sessions, or checkpoints. Invalid or unsafe
+`models.json` content fails loudly at startup (`ModelsJsonError`).

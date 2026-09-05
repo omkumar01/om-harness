@@ -104,6 +104,13 @@ class FormatCode(BaseTool[FormatCodeArgs]):
 
 ### Add a provider
 
+For OpenAI-compatible endpoints, **no code is needed** — users register
+them via `models.json` (see [docs/configuration.md](docs/configuration.md));
+the URL safety policy and key handling live in
+`src/om_harness/providers/models_json.py`.
+
+For non-OpenAI-compatible providers:
+
 1. Add a `ProviderSpec` to `PROVIDERS` in `src/om_harness/providers/base.py`
    (prefix, env keys, default/strong models).
 2. Add a construction branch in `providers/registry.make_model`.

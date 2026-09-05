@@ -4,14 +4,24 @@
 classes. Construction must never require network access; requests happen
 later, inside ``agent.run``. Unavailable providers return ``None`` so callers
 can degrade gracefully (e.g. route to the mock provider or report in doctor).
+
+Custom OpenAI-compatible providers from a ``models.json`` file (local
+gateways like LM Studio, or remote endpoints) are registered through the
+same surface: see ``providers/models_json.py``.
 """
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from typing import Any
 
 from om_harness.providers.base import BY_NAME, PROVIDERS, ModelSpec, ProviderInfo
+from om_harness.providers.models_json import ModelsJsonConfig, validate_provider_url
+
+# Placeholder key for local gateways that need a non-empty Authorization
+# header but no real credential (e.g. LM Studio). Not a secret.
+LOCAL_KEY_PLACEHOLDER = "om-harness-local"
 
 
 class ProviderError(Exception):
@@ -19,14 +29,19 @@ class ProviderError(Exception):
 
 
 class ProviderRegistry:
-    def __init__(self, env: Mapping[str, str] | None = None) -> None:
-        import os
-
+    def __init__(
+        self,
+        env: Mapping[str, str] | None = None,
+        custom: ModelsJsonConfig | None = None,
+    ) -> None:
         self._env: Mapping[str, str] = env if env is not None else os.environ
+        self._custom = custom
 
     # -- availability --------------------------------------------------------
 
     def is_available(self, provider_name: str) -> bool:
+        if self._custom is not None and provider_name in self._custom.providers:
+            return self._custom.providers[provider_name].is_available(dict(self._env))
         spec = BY_NAME.get(provider_name)
         if spec is None:
             return False
@@ -46,12 +61,48 @@ class ProviderRegistry:
             for spec in PROVIDERS
         ]
 
+    def custom_provider_summaries(self) -> list[dict[str, Any]]:
+        """JSON-friendly description of configured custom providers."""
+        if self._custom is None:
+            return []
+        summaries: list[dict[str, Any]] = []
+        for name, provider in sorted(self._custom.providers.items()):
+            summaries.append(
+                {
+                    "name": name,
+                    "prefix": f"{name}:",
+                    "base_url": provider.base_url,
+                    "api": provider.api,
+                    "available": self.is_available(name),
+                    "allow_local": provider.allow_local,
+                    "key_source": (
+                        "inline" if provider.api_key else (provider.api_key_env or "none")
+                    ),
+                    "models": [
+                        {
+                            "id": m.id,
+                            "reasoning": m.reasoning,
+                            "tool_calling": m.tool_calling,
+                            "vision": m.vision,
+                            "context_window": m.context_window,
+                        }
+                        for m in provider.models
+                    ],
+                }
+            )
+        return summaries
+
     def first_available(self) -> str:
         """First real provider with a key, else the mock provider."""
         for spec in PROVIDERS:
             if spec.name != "mock" and self.is_available(spec.name):
                 return spec.name
         return "mock"
+
+    @property
+    def custom_provider_names(self) -> list[str]:
+        """Names of providers registered via models.json (sorted)."""
+        return sorted(self._custom.providers) if self._custom is not None else []
 
     # -- model strings -------------------------------------------------------
 
@@ -62,9 +113,22 @@ class ProviderRegistry:
                 if not model_name:
                     raise ProviderError(f"malformed model string {model_str!r}")
                 return ModelSpec(provider=spec.name, model_name=model_name)
+
+        if self._custom is not None:
+            provider_name, sep, model_id = model_str.partition(":")
+            if sep and provider_name in self._custom.providers:
+                try:
+                    self._custom.get_model(provider_name, model_id)
+                except Exception as exc:
+                    raise ProviderError(str(exc)) from exc
+                return ModelSpec(provider=provider_name, model_name=model_id)
+            if provider_name in self._custom.providers:
+                raise ProviderError(f"malformed model string {model_str!r}")
+
         raise ProviderError(
             f"unknown provider in {model_str!r}; expected one of: "
             + ", ".join(spec.prefix for spec in PROVIDERS)
+            + (", or a provider from models.json" if self._custom is not None else "")
         )
 
     def default_model(self) -> str:
@@ -80,6 +144,51 @@ class ProviderRegistry:
                 return self._env[key]
         return None
 
+    def _make_custom_model(self, parsed: ModelSpec) -> Any | None:
+        """Build the client for a models.json provider, or None if unavailable."""
+        if self._custom is None:
+            return None
+        try:
+            provider = self._custom.providers[parsed.provider]
+            model = self._custom.get_model(parsed.provider, parsed.model_name)
+        except KeyError:
+            return None
+        if not self.is_available(parsed.provider):
+            return None
+
+        # Re-validate the endpoint at request-config time (defense in depth;
+        # the same policy already ran when models.json was loaded).
+        try:
+            base_url = validate_provider_url(
+                provider.base_url_for(model), allow_local=provider.allow_local
+            )
+        except Exception as exc:
+            raise ProviderError(str(exc)) from exc
+
+        api_key = provider.resolved_api_key(dict(self._env)) or LOCAL_KEY_PLACEHOLDER
+        model_name = parsed.model_name
+
+        if provider.api == "openai-completions":
+            from pydantic_ai.models.openai import OpenAIChatModel
+            from pydantic_ai.providers.openai import OpenAIProvider
+
+            return OpenAIChatModel(
+                model_name,
+                provider=OpenAIProvider(base_url=base_url, api_key=api_key),
+            )
+        if provider.api == "openai-responses":
+            from pydantic_ai.models.openai import OpenAIResponsesModel
+            from pydantic_ai.providers.openai import OpenAIProvider
+
+            return OpenAIResponsesModel(
+                model_name,
+                provider=OpenAIProvider(base_url=base_url, api_key=api_key),
+            )
+        # validate_policy() already rejects unsupported kinds; defensive only.
+        raise ProviderError(  # pragma: no cover
+            f"unsupported api {provider.api!r} for provider {parsed.provider!r}"
+        )
+
     def make_model(self, model_str: str) -> Any | None:
         """Build a PydanticAI model instance, or None if unavailable.
 
@@ -89,6 +198,10 @@ class ProviderRegistry:
         environment is fully populated and never requires network access.
         """
         parsed = self.resolve_model(model_str)
+
+        if self._custom is not None and parsed.provider in self._custom.providers:
+            return self._make_custom_model(parsed)
+
         provider = BY_NAME[parsed.provider]
 
         if provider.name == "mock":
