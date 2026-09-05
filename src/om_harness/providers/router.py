@@ -30,8 +30,8 @@ class ModelRouter:
             self.registry.resolve_model(override)  # validate early
             return override
 
-        if self.config.auto_route and task_type.value in self.config.task_models:
-            configured = self.config.task_models[task_type.value]
+        if self.config.auto_route and task_type in self.config.task_models:
+            configured = self.config.task_models[task_type]
             self.registry.resolve_model(configured)
             return configured
 

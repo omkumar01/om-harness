@@ -135,11 +135,16 @@ def _apply_env(config: HarnessConfig, env: Mapping[str, str]) -> HarnessConfig:
             parsed[task_type.strip()] = model_str.strip()
         routing_updates["task_models"] = parsed
     if routing_updates:
-        updates["routing"] = config.routing.model_copy(update=routing_updates)
+        # model_validate (not model_copy) so string enum values/keys coerce.
+        data = config.routing.model_dump()
+        data.update(routing_updates)
+        updates["routing"] = RoutingConfig.model_validate(data)
 
     policy = env.get(f"{ENV_PREFIX}APPROVAL_POLICY")
     if policy:
-        updates["approval"] = config.approval.model_copy(update={"policy": policy})
+        updates["approval"] = ApprovalConfig.model_validate(
+            {**config.approval.model_dump(), "policy": policy}
+        )
 
     simple = {
         "MAX_CONCURRENCY": ("max_concurrency", int),
