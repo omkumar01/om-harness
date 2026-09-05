@@ -87,6 +87,7 @@ From a clone (for development):
 git clone https://github.com/om-harness/om-harness
 cd om-harness
 uv sync
+uv tool install . --force 
 uv run om-harness --version
 ```
 
@@ -119,7 +120,7 @@ om Fixed add() in calc.py — tests pass.
 - **Always-on status**: the input header and the persistent status bar show
   the approval mode, the active provider and model (what the next turn will
   actually use), the thinking level, and a live context
-  gauge (`context ▮▮▮▯▯… 32k/200k`) at all times — plus the `Ctrl+M` model
+  gauge (`context ▮▮▮▯▯… 32k/200k`) at all times — plus the `Alt+M` model
   selector shortcut.
 - **Live activity**: tool calls, commands, and approvals stream as they
   happen; per-turn summaries show files read, files modified, commands run,
@@ -134,7 +135,7 @@ om Fixed add() in calc.py — tests pass.
 | `Enter` | send |
 | `\` + `Enter` or `Alt+Enter` | newline (multi-line input) |
 | `Shift+Tab` | cycle approval mode: ask → auto → deny |
-| `Ctrl+M` | model selector (arrow keys, all configured providers) |
+| `Alt+M` | model selector (arrow keys, all configured providers) |
 | `Ctrl+T` | cycle thinking level: off → low → medium → high |
 | `Ctrl+O` | cycle verbosity: compact → verbose → debug |
 | `Ctrl+G` | help (commands + keys) |

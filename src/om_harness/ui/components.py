@@ -296,7 +296,7 @@ def status_bar(
     if hint:
         parts.append(hint)
     else:
-        parts.append("^M model · ^T thinking · ⇧Tab mode · ^G help")
+        parts.append("alt+M model · ^T thinking · ⇧Tab mode · ^G help")
     return "  ·  ".join(parts)
 
 

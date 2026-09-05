@@ -103,7 +103,7 @@ def test_status_bar_always_shows_provider_model_thinking_mode() -> None:
     assert "thinking medium" in bar
     assert "⏵⏵ auto" in bar
     assert "context" in bar
-    assert "^M model" in bar  # shortcut hint always visible
+    assert "alt+M model" in bar  # shortcut hint always visible
 
 
 def test_header_line_shows_state() -> None:
@@ -287,7 +287,7 @@ def test_status_bar_contains_live_state(tmp_path: Any, home: Any) -> None:
     assert "model mock:echo" in bar
     assert f"thinking {repl.thinking}" in bar
     assert "context" in bar
-    assert "^M model" in bar
+    assert "alt+M model" in bar
 
 
 def test_status_bar_reflects_selected_model(tmp_path: Any, home: Any) -> None:
@@ -430,6 +430,30 @@ def test_shift_tab_binding_key_is_valid() -> None:
 
     kb = KeyBindings()
     kb.add("s-tab")(lambda event: None)  # must not raise
+
+
+def test_no_binding_conflicts_with_enter() -> None:
+    """Ctrl+M is physically the same key as Enter; binding the model
+    selector to it made every Enter press crash the prompt. Guard: the
+    model selector must only bind to keys other than enter/c-m, and every
+    configured key name must be valid."""
+    from prompt_toolkit.key_binding import KeyBindings
+
+    from om_harness.ui.repl import KEYBINDINGS
+
+    for action, groups in KEYBINDINGS.items():
+        for group in groups:
+            if action == "model_selector":
+                assert "enter" not in group and "c-m" not in group
+        # The primary (first) key group must be valid on this platform;
+        # fallback aliases may be invalid elsewhere.
+        kb = KeyBindings()
+        kb.add(*groups[0])(lambda event: None)
+
+    # Submit and the selector must not share any key group.
+    submit_groups = {frozenset(g) for g in KEYBINDINGS["submit"]}
+    selector_groups = {frozenset(g) for g in KEYBINDINGS["model_selector"]}
+    assert not submit_groups & selector_groups
 
 
 def test_slash_mode_cycles_approval(tmp_path: Any, home: Any) -> None:

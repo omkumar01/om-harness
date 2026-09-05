@@ -46,6 +46,20 @@ EXIT_COMMANDS = {"exit", "quit", ":q", "q"}
 PUMP_INTERVAL_SECONDS = 0.05
 CONTEXT_BUDGET_TOKENS = 200_000  # gauge ceiling when no budget is configured
 
+# Keybinding table: action -> candidate key groups. The first group whose
+# key names are all valid for this platform wins. Note: Ctrl+M is physically
+# the same key as Enter, so the model selector must never bind to it.
+KEYBINDINGS: dict[str, tuple[tuple[str, ...], ...]] = {
+    "submit": (("enter",),),
+    "newline": (("escape", "enter"), ("c-j",)),
+    "mode": (("s-tab",), ("backtab",)),
+    "thinking": (("c-t",),),
+    "verbosity": (("c-o",),),
+    "model_selector": (("escape", "m"), ("f4",)),
+    "help": (("c-g",),),
+    "clear": (("c-l",),),
+}
+
 
 class ChatRepl:
     def __init__(
@@ -115,6 +129,9 @@ class ChatRepl:
             except EOFError:
                 self.renderer.info("bye")
                 return
+            except _ModelSelectorRequested:
+                self._cmd_model_selector()
+                continue
             except KeyboardInterrupt:
                 now = time.monotonic()
                 if now - self._last_ctrl_c < 2.0:
@@ -200,8 +217,8 @@ class ChatRepl:
                 try:
                     kb.add(*keys)(func)
                     return
-                except Exception:
-                    continue
+                except (KeyError, ValueError):
+                    continue  # invalid key name on this platform: try next alias
 
         def _submit(event: Any) -> None:
             buffer = event.current_buffer
@@ -239,14 +256,18 @@ class ChatRepl:
         def _clear(event: Any) -> None:
             event.app.renderer.clear()
 
-        bind("enter", _submit)
-        bind([("escape", "enter"), "c-j"], _newline)
-        bind(["s-tab", "backtab"], _mode)  # Shift+Tab: cycle approval mode
-        bind("c-t", _thinking)
-        bind("c-o", _verbosity)
-        bind("c-m", _selector)
-        bind("c-g", _help)
-        bind("c-l", _clear)
+        handlers: dict[str, Any] = {
+            "submit": _submit,
+            "newline": _newline,
+            "mode": _mode,
+            "thinking": _thinking,
+            "verbosity": _verbosity,
+            "model_selector": _selector,
+            "help": _help,
+            "clear": _clear,
+        }
+        for action, groups in KEYBINDINGS.items():
+            bind(groups, handlers[action])
 
         return PromptSession(
             completer=SlashCompleter(self),
@@ -476,7 +497,7 @@ class ChatRepl:
             DisplayLine(
                 level=LineLevel.dim,
                 icon="·",
-                text="keys: ⇧Tab mode · ^M model · ^T thinking · ^O verbose · ^G help · ^L clear",
+                text="keys: ⇧Tab mode · alt+M model · ^T thinking · ^O verbose · ^G help",
             )
         )
         self.renderer.line(
