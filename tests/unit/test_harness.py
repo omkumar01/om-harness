@@ -43,7 +43,7 @@ async def test_run_persists_no_secret_material(repo: Any) -> None:
     secret_value = "super-secret-" + "live-key-do-not-leak"
     env = {"OPENAI_API_KEY": secret_value}
     harness = Harness(repo_root=repo, env=env)
-    outcome = await harness.run("some goal")
+    await harness.run("some goal")
     # Scan the whole durable state directory for the secret.
     state_dir = repo / ".om-harness"
     for path in state_dir.rglob("*"):

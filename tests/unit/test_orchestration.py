@@ -230,7 +230,7 @@ async def test_retry_exhaustion_reports_failure() -> None:
 
 
 async def test_coordinator_respects_max_concurrency() -> None:
-    runner = FakeRunner()
+    FakeRunner()
     active = 0
     peak = 0
 
