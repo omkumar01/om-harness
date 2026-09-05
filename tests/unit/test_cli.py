@@ -126,3 +126,49 @@ def test_config_show_json(repo: Any) -> None:
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert "routing" in data
+
+
+def test_bare_command_launches_interactive(repo: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Running bare `om-harness` must start an interactive chat session."""
+    import om_harness.cli.app as app_module
+
+    calls: list[dict[str, Any]] = []
+
+    def fake_launch(**kwargs: Any) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr(app_module, "launch_interactive", fake_launch)
+    result = runner.invoke(app, [], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert len(calls) == 1
+
+
+def test_version_flag_still_works_with_default_command(repo: Any) -> None:
+    result = _invoke("--version")
+    assert result.exit_code == 0
+    assert "om-harness" in result.output
+
+
+def test_chat_alias_delegates_to_interactive(repo: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    import om_harness.cli.app as app_module
+
+    calls: list[dict[str, Any]] = []
+
+    def fake_launch(**kwargs: Any) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr(app_module, "launch_interactive", fake_launch)
+    result = runner.invoke(app, ["chat", "--resume"], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert calls and calls[0]["resume"] is True
+
+
+def test_subcommands_do_not_launch_interactive(repo: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    import om_harness.cli.app as app_module
+
+    def fail_launch(**kwargs: Any) -> None:
+        raise AssertionError("launch_interactive must not run for subcommands")
+
+    monkeypatch.setattr(app_module, "launch_interactive", fail_launch)
+    result = _invoke("status", "--json")
+    assert result.exit_code == 0

@@ -19,6 +19,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from om_harness.config.loader import ApprovalPolicy, HarnessConfig, load_config
+from om_harness.config.paths import user_cache_dir
 from om_harness.config.secrets import SecretRedactor
 from om_harness.context.assembler import ContextAssembler
 from om_harness.context.repo_index import RepoIndex
@@ -127,7 +128,12 @@ class Harness:
 
         self.provider_registry = ProviderRegistry(self.env, custom=self.models_json)
         self.router = ModelRouter(self.config.routing, self.provider_registry)
-        self.repo_index = RepoIndex(self.repo_root, self.config.context.max_repo_index_files)
+        self.repo_index = RepoIndex(
+            self.repo_root,
+            self.config.context.max_repo_index_files,
+            cache_dir=user_cache_dir(),
+            cache_ttl_hours=self.config.context.index_cache_ttl_hours,
+        )
         self.assembler = ContextAssembler(self.config, self.repo_index)
 
         tool_ctx = ToolContext(

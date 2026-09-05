@@ -66,7 +66,20 @@ decision is visible.
 
 ## Install
 
-Requires [uv](https://docs.astral.sh/uv/) and Python 3.11+.
+Requires Python 3.11+. The recommended installer is
+[uv](https://docs.astral.sh/uv/):
+
+```bash
+uv tool install om-harness                    # from PyPI
+```
+
+or directly from GitHub:
+
+```bash
+uv tool install git+https://github.com/om-harness/om-harness
+```
+
+From a clone (for development):
 
 ```bash
 git clone https://github.com/om-harness/om-harness
@@ -75,7 +88,44 @@ uv sync
 uv run om-harness --version
 ```
 
-Or install into your environment with `uv tool install .` from a clone.
+Then, inside any git repository:
+
+```bash
+om-harness                 # starts an interactive chat session
+```
+
+The first launch creates your user config at `~/.om-harness/` and prints a
+short setup hint. That's the whole onboarding.
+
+## The interactive chat
+
+Running bare `om-harness` (or `om-harness chat`) starts a coding session in
+the current repository — Codex/Claude-Code style:
+
+- **live activity**: tool calls, commands, and approvals stream as they
+  happen; per-turn summaries show files read, files modified, commands run,
+  and tokens spent; the prompt footer carries session totals;
+- **model thinking**: `/thinking` toggles live streaming of the model's
+  reasoning (for reasoning models);
+- **configuration management**: `/model [name]`, `/config`,
+  `/config set <key> <value>` (persisted to
+  `~/.om-harness/config/config.toml`), `/providers`, `/tools`, `/status`,
+  `/sessions`, `/checkpoint [label]`, `/verbose`, `/thinking`, `/exit`.
+
+User-level configuration lives in `~/.om-harness/`:
+
+```
+~/.om-harness/
+├── config/
+│   ├── config.toml     # user-level harness settings
+│   └── models.json     # custom providers (local gateways, private endpoints)
+└── cache/
+    └── repo-index/     # repository index caches
+```
+
+Repo-level `om-harness.toml` / `models.json` override the user-level files;
+environment variables override everything. Sessions and checkpoints stay in
+the repository (`.om-harness/`, gitignored).
 
 ## Configure providers
 
@@ -143,18 +193,12 @@ opt-in. Full field reference: [docs/configuration.md](docs/configuration.md).
 ## First run
 
 ```bash
-om-harness init                 # creates .om-harness/, updates .gitignore
-om-harness doctor               # checks git, config, state dir, providers
+om-harness                       # interactive chat (auto-creates ~/.om-harness/)
+om-harness doctor                # checks git, config, state dir, providers
 om-harness run "explain the module layout in src/"          # read-only task
 om-harness run "add input validation to parser.py and test it"
-om-harness status               # sessions, checkpoints, providers
-om-harness resume               # inspect and continue the latest session
-```
-
-Interactive chat:
-
-```bash
-om-harness chat                 # then: /tools, /status, or just talk
+om-harness status                # sessions, checkpoints, providers
+om-harness resume                # inspect and continue the latest session
 ```
 
 No keys at all? Watch a complete coding flow (inspect → edit → test) run

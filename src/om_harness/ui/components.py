@@ -158,7 +158,13 @@ def _describe(event: Event) -> str:
 
 
 def event_to_display(event: Event, verbosity: Verbosity) -> DisplayLine | None:
-    """Map an event to a display line, or None if filtered by verbosity."""
+    """Map an event to a display line, or None if filtered by verbosity.
+
+    MESSAGE_DELTA events are never rendered here — they stream live via the
+    REPL pump (deltas would duplicate the final reply otherwise).
+    """
+    if event.type == EventType.MESSAGE_DELTA:
+        return None
     if verbosity == Verbosity.debug:
         shown = True
     elif verbosity == Verbosity.verbose:
@@ -184,11 +190,64 @@ def event_to_display(event: Event, verbosity: Verbosity) -> DisplayLine | None:
     return DisplayLine(level=level, icon=icon, text=_describe(event))
 
 
+class TurnActivity(BaseModel):
+    """What one chat turn actually did — files, commands, tokens."""
+
+    files_read: list[str] = Field(default_factory=list)
+    files_modified: list[str] = Field(default_factory=list)
+    commands_run: list[str] = Field(default_factory=list)
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+    def summary_line(self) -> str:
+        parts: list[str] = []
+        if self.files_read:
+            parts.append("read " + ", ".join(dict.fromkeys(self.files_read)))
+        if self.files_modified:
+            parts.append("wrote " + ", ".join(dict.fromkeys(self.files_modified)))
+        if self.commands_run:
+            parts.append("ran " + ", ".join(self.commands_run))
+        if self.input_tokens or self.output_tokens:
+            parts.append(f"{self.input_tokens}+{self.output_tokens} tok")
+        return " · ".join(parts) if parts else "no tool activity"
+
+
+_MUTATING_TOOLS = {"write_file", "edit_file"}
+_READ_TOOLS = {"read_file"}
+_COMMAND_TOOLS = {"run_shell", "run_tests"}
+
+
+def turn_activity(events: list[Event]) -> TurnActivity:
+    """Derive the concrete activity of one turn from its event segment."""
+    activity = TurnActivity()
+    for event in events:
+        data = event.data
+        tool = data.get("tool")
+        if event.type == EventType.TOOL_CALL_STARTED and tool:
+            arguments = data.get("arguments") or {}
+            path = arguments.get("path") or arguments.get("subdirectory") or ""
+            if tool in _READ_TOOLS and path:
+                activity.files_read.append(str(path))
+            elif tool in _MUTATING_TOOLS and path:
+                activity.files_modified.append(str(path))
+            elif tool in _COMMAND_TOOLS:
+                label = tool
+                if tool == "run_shell" and arguments.get("command"):
+                    label = f"run_shell({arguments['command'][:60]})"
+                activity.commands_run.append(label)
+        elif event.type == EventType.MODEL_CALL_COMPLETED:
+            activity.input_tokens += int(data.get("input_tokens") or 0)
+            activity.output_tokens += int(data.get("output_tokens") or 0)
+    return activity
+
+
 __all__ = [
     "DisplayLine",
     "LineLevel",
     "RunSummaryView",
     "TaskSummaryView",
+    "TurnActivity",
     "event_to_display",
     "outcome_to_summary",
+    "turn_activity",
 ]

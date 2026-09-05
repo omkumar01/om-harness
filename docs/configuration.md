@@ -1,10 +1,36 @@
 # Configuration
 
-om-harness is configured from three sources, in increasing precedence:
+om-harness is configured from four sources, in increasing precedence:
 
 1. built-in defaults,
-2. a configuration file,
-3. environment variables.
+2. user-level configuration: `~/.om-harness/config/config.toml`,
+3. repository-level configuration: `om-harness.toml` (or
+   `[tool.om-harness]` in `pyproject.toml`),
+4. environment variables.
+
+Nested tables merge across levels — a repo-level `[routing.task_models]`
+entry adds to (or overrides) the user-level one; scalars at the more
+specific level win.
+
+## User-level layout (`~/.om-harness/`)
+
+The delivered install keeps all configuration and caches here
+(`OM_HARNESS_HOME` overrides the root, e.g. for tests):
+
+```
+~/.om-harness/
+├── config/
+│   ├── config.toml     # user-level harness settings (created on demand)
+│   └── models.json     # user-level custom providers
+└── cache/
+    └── repo-index/     # persisted repository index caches (24h TTL)
+```
+
+Sessions and checkpoints stay repository-local (`<repo>/.om-harness/`,
+gitignored). Inside the interactive chat, `/config set <key> <value>`
+validates the change, applies it to the live session, and persists it to
+`config.toml` — keys: `model`, `approval`, `verbosity`, `max_concurrency`,
+`max_requests`, `task_model.<type>`.
 
 ## Configuration file
 
@@ -106,11 +132,11 @@ endpoint** declared in a `models.json` file: local gateways (LM Studio,
 Ollama, llama.cpp server) or remote inference providers (NVIDIA NIM,
 Poolside, OpenRouter, private deployments).
 
-Location (first match wins):
+Location — all sources are merged, more specific ones winning per provider:
 
-1. path in the `OM_HARNESS_MODELS_JSON` environment variable,
-2. `<repo>/models.json`,
-3. `<repo>/.om-harness/models.json`.
+1. `~/.om-harness/config/models.json` (user-level; the usual place),
+2. `<repo>/models.json` (repo-specific providers/overrides),
+3. path in the `OM_HARNESS_MODELS_JSON` environment variable (explicit override).
 
 Example (a full annotated copy lives at
 [examples/models.json](examples/models.json)):

@@ -149,6 +149,31 @@ uv run python -m om_harness.ui.web.server
 om-harness state lives in `.om-harness/` of whatever repository you're in —
 safe to delete at any time.
 
+## Releasing
+
+Releases publish to **both** PyPI and GitHub Releases automatically:
+
+1. Bump `version` in `pyproject.toml` and `__version__` in
+   `src/om_harness/__init__.py` (same value) in a PR.
+2. After it merges, tag the release and push the tag:
+   `git tag v0.2.0 && git push origin v0.2.0`.
+3. The `Release` workflow builds the wheel/sdist, runs all checks,
+   smoke-tests the wheel in a fresh venv, publishes to PyPI, and creates a
+   GitHub Release with the artifacts.
+
+Setup (maintainers, one-time):
+
+- Add a `PYPI_API_KEY` secret (or configure PyPI trusted publishing for the
+  `pypi` environment) — the workflow supports both.
+- PyPI project name: `om-harness`; the CLI command is also `om-harness`.
+
+Users can install either way:
+
+```bash
+uv tool install om-harness                                  # PyPI
+uv tool install git+https://github.com/om-harness/om-harness  # GitHub
+```
+
 ## Commit / PR conventions
 
 - Small, focused PRs with tests.

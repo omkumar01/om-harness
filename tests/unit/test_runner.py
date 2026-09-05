@@ -7,7 +7,7 @@ import asyncio
 from typing import Any
 
 import pytest
-from pydantic_ai.messages import ModelResponse, TextPart
+from pydantic_ai.messages import ModelResponse, TextPart, ThinkingPart
 from pydantic_ai.models.function import FunctionModel
 
 from om_harness.config.loader import HarnessConfig
@@ -196,3 +196,38 @@ def test_budget_maps_config_to_usage_limits(tmp_repo: Any) -> None:
     assert limits.input_tokens_limit == 100
     assert limits.output_tokens_limit == 50
     assert limits.request_limit == 3
+
+
+async def test_streaming_deltas_published_as_events(tmp_repo: Any) -> None:
+    """A streaming model produces MESSAGE_DELTA events with kind text/thinking."""
+    from pydantic_ai.models.function import DeltaThinkingPart
+
+    async def stream_fn(messages, agent_info):  # type: ignore[no-untyped-def]
+        yield {0: DeltaThinkingPart(content="let me think")}
+        yield "the answer is 4"
+
+    bus = EventBus()
+    runner = _runner(tmp_repo, FunctionModel(stream_function=stream_fn), bus)
+    task = Task(id="t1", title="x", instruction="compute 2+2")
+    result = await runner.run_task(task)
+    assert result.status == TaskStatus.completed
+    deltas = [e for e in bus.history if e.type == EventType.MESSAGE_DELTA]
+    kinds = [d.data["kind"] for d in deltas]
+    assert "thinking" in kinds
+    assert "text" in kinds
+    text = "".join(d.data["delta"] for d in deltas if d.data["kind"] == "text")
+    assert "the answer is 4" in text
+
+
+async def test_thinking_extracted_from_non_streaming_result(tmp_repo: Any) -> None:
+    async def respond(messages, agent_info) -> ModelResponse:  # type: ignore[no-untyped-def]
+        return ModelResponse(
+            parts=[ThinkingPart(content="pondering"), TextPart(content="answer 4")]
+        )
+
+    bus = EventBus()
+    runner = _runner(tmp_repo, FunctionModel(respond), bus)
+    result = await runner.run_task(Task(id="t1", title="x", instruction="q"))
+    assert result.status == TaskStatus.completed
+    completed = [e for e in bus.history if e.type == EventType.AGENT_COMPLETED]
+    assert "pondering" in completed[-1].data["thinking"]

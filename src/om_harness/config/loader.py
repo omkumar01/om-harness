@@ -1,8 +1,9 @@
-"""Harness configuration: TOML file + environment variables, validated.
+"""Harness configuration: TOML files + environment variables, validated.
 
-Precedence: environment variables override the config file, which overrides
-defaults. Secrets are never read from the config file — API keys come from
-the environment only (see ``config.secrets``).
+Precedence: defaults < ~/.om-harness/config/config.toml < repo-level file
+(om-harness.toml or pyproject.toml [tool.om-harness]) < OM_HARNESS_* env
+vars. Secrets are never read from config files — API keys come from the
+environment only (see ``config.secrets``).
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from om_harness.config.paths import user_config_file
 from om_harness.models.task import TaskType
 
 CONFIG_FILENAME = "om-harness.toml"
@@ -71,6 +73,7 @@ class ContextConfig(BaseModel):
     max_history_messages: int = 40  # hard cap on raw history sent to a model
     summarize_after: int = 24  # summarize history beyond this many messages
     max_repo_index_files: int = 500  # files in the index snippet sent for scoping
+    index_cache_ttl_hours: float = 24.0  # persisted repo-index freshness window
     max_file_read_chars: int = 40_000  # per-read cap before truncation
 
 
@@ -104,16 +107,35 @@ def _read_table(path: Path) -> dict[str, Any]:
     return data
 
 
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge ``override`` into ``base`` (override wins)."""
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def _config_table(repo_root: Path, config_path: Path | None) -> dict[str, Any]:
+    """Effective config table: user-level file merged under repo-level file.
+
+    Precedence: defaults < ~/.om-harness/config/config.toml < repo file.
+    An explicit ``config_path`` skips discovery entirely (tests, tooling).
+    """
     if config_path is not None:
         return _read_table(config_path)
-    default_file = repo_root / CONFIG_FILENAME
-    if default_file.exists():
-        return _read_table(default_file)
-    pyproject = repo_root / PYPROJECT_FILENAME
-    if pyproject.exists():
-        return _read_table(pyproject).get("tool", {}).get(PYPROJECT_TABLE, {})
-    return {}
+    user_table = _read_table(user_config_file())
+    repo_file = repo_root / CONFIG_FILENAME
+    repo_table: dict[str, Any] = {}
+    if repo_file.exists():
+        repo_table = _read_table(repo_file)
+    else:
+        pyproject = repo_root / PYPROJECT_FILENAME
+        if pyproject.exists():
+            repo_table = _read_table(pyproject).get("tool", {}).get(PYPROJECT_TABLE, {})
+    return _deep_merge(user_table, repo_table)
 
 
 def _apply_env(config: HarnessConfig, env: Mapping[str, str]) -> HarnessConfig:
@@ -180,6 +202,9 @@ def load_config(
 
     Raises ``ConfigError`` for malformed files or unknown enum values so
     misconfiguration fails loudly at startup, not mid-run.
+
+    Precedence: defaults < ~/.om-harness/config/config.toml < repo-level
+    file < OM_HARNESS_* environment variables.
     """
     env = env if env is not None else os.environ
     table = _config_table(repo_root, config_path)

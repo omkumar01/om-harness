@@ -20,19 +20,59 @@ import uvicorn
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi import FastAPI  # noqa: E402
-from fastapi.responses import JSONResponse  # noqa: E402
+from fastapi.responses import JSONResponse, StreamingResponse  # noqa: E402
 
 from om_harness.harness import Harness  # noqa: E402
 from om_harness.models.task import TaskStatus  # noqa: E402
 
 MODEL_ID = "test-local-model"
+CONTENT = "gateway says: 2 + 2 = 4"
+
+
+def _chunk(delta: dict[str, Any], finish: str | None = None) -> str:
+    data = {
+        "id": "chatcmpl-test",
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": MODEL_ID,
+        "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+    }
+    return f"data: {json.dumps(data)}\n\n"
 
 
 def _gateway_app() -> FastAPI:
     app = FastAPI()
 
     @app.post("/v1/chat/completions")
-    async def chat_completions(payload: dict[str, Any]) -> JSONResponse:
+    async def chat_completions(payload: dict[str, Any]) -> Any:
+        usage = {
+            "prompt_tokens": 10,
+            "completion_tokens": 8,
+            "total_tokens": 18,
+        }
+        if payload.get("stream"):
+            # OpenAI-compatible SSE stream (as real gateways answer when the
+            # harness attaches an event-stream handler).
+
+            def sse() -> Any:
+                for piece in (CONTENT[:6], CONTENT[6:12], CONTENT[12:]):
+                    yield _chunk({"role": "assistant", "content": piece})
+                yield _chunk({}, finish="stop")
+                if (payload.get("stream_options") or {}).get("include_usage"):
+                    final = {
+                        "id": "chatcmpl-test",
+                        "object": "chat.completion.chunk",
+                        "created": 1,
+                        "model": MODEL_ID,
+                        "choices": [],
+                        "usage": usage,
+                    }
+                    yield f"data: {json.dumps(final)}\n\n"
+                yield "data: [DONE]\n\n"
+
+            return StreamingResponse(
+                sse(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"}
+            )
         return JSONResponse(
             {
                 "id": "chatcmpl-test",
@@ -43,17 +83,10 @@ def _gateway_app() -> FastAPI:
                     {
                         "index": 0,
                         "finish_reason": "stop",
-                        "message": {
-                            "role": "assistant",
-                            "content": "gateway says: 2 + 2 = 4",
-                        },
+                        "message": {"role": "assistant", "content": CONTENT},
                     }
                 ],
-                "usage": {
-                    "prompt_tokens": 10,
-                    "completion_tokens": 8,
-                    "total_tokens": 18,
-                },
+                "usage": usage,
             }
         )
 

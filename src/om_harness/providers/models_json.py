@@ -38,9 +38,12 @@ import json
 import os
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 from pydantic import AliasChoices, BaseModel, Field, model_validator
+
+from om_harness.config.paths import user_models_json
 
 MODELS_JSON_FILENAME = "models.json"
 ENV_MODELS_JSON = "OM_HARNESS_MODELS_JSON"
@@ -236,29 +239,46 @@ def load_models_json(
     env: Mapping[str, str] | None = None,
     config_path: Path | None = None,
 ) -> ModelsJsonConfig | None:
-    """Discover, parse, and validate ``models.json``; None if absent.
+    """Discover, parse, merge, and validate models.json; None if absent.
 
-    Discovery order: explicit ``config_path``, ``OM_HARNESS_MODELS_JSON``,
-    ``<repo>/models.json``, ``<repo>/.om-harness/models.json``.
+    Sources, merged in order (later sources override same-named providers):
+    ``~/.om-harness/config/models.json`` (user-level, the normal home for a
+    delivered install), ``<repo>/models.json`` (repo-specific additions), and
+    ``OM_HARNESS_MODELS_JSON`` (explicit override). An explicit
+    ``config_path`` skips discovery entirely (tests, tooling).
     """
     env_mapping: Mapping[str, str] = env if env is not None else os.environ
-    candidates: list[Path] = []
     if config_path is not None:
-        candidates.append(config_path)
-    env_path = env_mapping.get(ENV_MODELS_JSON)
-    if env_path:
-        candidates.append(Path(env_path))
-    candidates.append(Path(repo_root) / MODELS_JSON_FILENAME)
-    candidates.append(Path(repo_root) / ".om-harness" / MODELS_JSON_FILENAME)
+        sources: list[Path] = [config_path]
+    else:
+        # More specific sources come later and win: user-level defaults,
+        # then repo-specific providers, then an explicit env override.
+        sources = [user_models_json()]
+        sources.append(Path(repo_root) / MODELS_JSON_FILENAME)
+        env_path = env_mapping.get(ENV_MODELS_JSON)
+        if env_path:
+            sources.append(Path(env_path))
 
-    path = next((c for c in candidates if c.is_file()), None)
-    if path is None:
+    merged_providers: dict[str, Any] = {}
+    found_any = False
+    for source in sources:
+        if not source.is_file():
+            continue
+        found_any = True
+        try:
+            data = json.loads(source.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            raise ModelsJsonError(f"failed to parse {source}: {exc}") from exc
+        if not isinstance(data, dict):
+            raise ModelsJsonError(f"invalid models.json at {source}: expected an object")
+        merged_providers.update(data.get("providers") or {})
+    if not found_any:
+        return None
+    if not merged_providers:
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
-        raise ModelsJsonError(f"failed to parse {path}: {exc}") from exc
-    try:
-        return ModelsJsonConfig.model_validate(data)
+        return ModelsJsonConfig.model_validate({"providers": merged_providers})
+    except ModelsJsonError:
+        raise
     except Exception as exc:
-        raise ModelsJsonError(f"invalid models.json at {path}: {exc}") from exc
+        raise ModelsJsonError(f"invalid models.json content: {exc}") from exc

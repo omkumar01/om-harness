@@ -19,7 +19,12 @@ from om_harness.models.events import EventType, make_event
 from om_harness.models.task import Task, TaskResult, TaskStatus, TokenUsage
 from om_harness.providers.registry import ProviderRegistry
 from om_harness.providers.router import ModelRouter
-from om_harness.runtime.agent import AgentFactory
+from om_harness.runtime.agent import (
+    AgentFactory,
+    extract_thinking,
+    make_stream_handler,
+    supports_streaming,
+)
 from om_harness.runtime.bus import EventBus
 from om_harness.tools.registry import GuardedToolExecutor
 
@@ -129,11 +134,22 @@ class AgentRunner:
         )
         self._emit(EventType.MODEL_CALL_STARTED, task_id=task.id, model=model_str)
         started = time.monotonic()
+        stream_kwargs: dict[str, Any] = {}
+        if supports_streaming(model):
+            stream_kwargs["event_stream_handler"] = make_stream_handler(
+                self.bus,
+                session_id=self.session_id,
+                run_id=self.run_id,
+                task_id=task.id,
+                agent=task.role,
+            )
 
         try:
             async with asyncio.timeout(self.config.agent_timeout_seconds):
                 response = await agent.run(
-                    assembled.user_prompt, usage_limits=_usage_limits(self.config.budget)
+                    assembled.user_prompt,
+                    usage_limits=_usage_limits(self.config.budget),
+                    **stream_kwargs,
                 )
         except TimeoutError:
             elapsed = time.monotonic() - started
@@ -172,6 +188,7 @@ class AgentRunner:
             task_id=task.id,
             agent=task.role,
             elapsed_ms=round((time.monotonic() - started) * 1000),
+            thinking=extract_thinking(response.all_messages()),
         )
         return TaskResult(
             task_id=task.id,

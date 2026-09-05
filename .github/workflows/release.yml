@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    name: Build & verify distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run checks
+        run: |
+          uv sync --frozen
+          uv run ruff format --check .
+          uv run ruff check .
+          uv run mypy src
+          uv run pytest
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Smoke-test the wheel in a fresh venv
+        run: |
+          uv venv /tmp/smoke
+          VIRTUAL_ENV=/tmp/smoke uv pip install dist/*.whl
+          /tmp/smoke/bin/python -c "import om_harness; print(om_harness.__version__)"
+          /tmp/smoke/bin/om-harness --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # trusted publishing (preferred)
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      # Uses OIDC trusted publishing when configured on PyPI; otherwise set
+      # the API key in the pypi environment as the password variable.
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_KEY }}
+
+  github-release:
+    name: GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

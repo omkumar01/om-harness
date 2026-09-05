@@ -20,7 +20,6 @@ from om_harness import __version__
 app = typer.Typer(
     name="om-harness",
     help="A context-efficient AI coding-agent harness for real repositories.",
-    no_args_is_help=True,
     add_completion=False,
     pretty_exceptions_show_locals=False,
 )
@@ -41,13 +40,47 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit
 
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def main(
+    ctx: typer.Context,
     version: bool = typer.Option(
         False, "--version", callback=_version_callback, is_eager=True, help="Show version and exit."
     ),
 ) -> None:
-    """om-harness: orchestrate coding agents in your repository."""
+    """om-harness: orchestrate coding agents in your repository.
+
+    Run without a subcommand to start an interactive chat session.
+    """
+    if ctx.invoked_subcommand is None:
+        launch_interactive()
+
+
+def launch_interactive(
+    repo: str | None = None,
+    session: str | None = None,
+    resume: bool = False,
+    model: str | None = None,
+    approval_policy: str | None = None,
+) -> None:  # pragma: no cover - interactive entry point (tested via monkeypatch)
+    """First-class default: `om-harness` drops you into a chat session."""
+    from om_harness.config.paths import ensure_user_dirs, user_config_dir
+    from om_harness.ui.repl import ChatRepl
+
+    first_run = ensure_user_dirs()
+    harness = _build_harness(repo, False, False, False, model, approval_policy)
+    renderer = harness.renderer
+    if first_run:
+        renderer.console.print(
+            f"[green]Welcome to om-harness[/] — user config at {user_config_dir()}"
+        )
+        renderer.console.print(
+            "[dim]Set provider API keys in your environment (OPENAI_API_KEY, "
+            "ANTHROPIC_API_KEY, GOOGLE_API_KEY) or add providers to "
+            "~/.om-harness/config/models.json. Type /help for commands.[/]"
+        )
+    session_obj = harness._resolve_session(session_id=session, resume=resume)
+    repl = ChatRepl(harness, session_id=session_obj.session_id, verbosity=harness.config.verbosity)
+    repl.run_forever()
 
 
 def run_app() -> None:
@@ -192,13 +225,10 @@ def chat(
     debug: bool = typer.Option(False, "--debug"),
     approval_policy: str = typer.Option(None, "--approval-policy"),
 ) -> None:
-    """Interactive chat session with the coding agent."""
-    from om_harness.ui.repl import ChatRepl
-
-    harness = _build_harness(repo, json_mode, verbose, debug, model, approval_policy)
-    session_obj = harness._resolve_session(session_id=session, resume=resume)
-    repl = ChatRepl(harness, session_id=session_obj.session_id, verbosity=harness.config.verbosity)
-    repl.run_forever()
+    """Interactive chat session (same as running bare `om-harness`)."""
+    launch_interactive(
+        repo=repo, session=session, resume=resume, model=model, approval_policy=approval_policy
+    )
 
 
 @app.command()
