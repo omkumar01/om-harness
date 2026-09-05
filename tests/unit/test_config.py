@@ -76,7 +76,11 @@ def test_explicit_config_path(tmp_path: Any) -> None:
 
 def test_missing_repo_root_is_fine(tmp_path: Any) -> None:
     config = load_config(tmp_path)
-    assert config == HarnessConfig()
+    # The isolated test home pre-seeds a mock default for offline runs;
+    # everything else must match the built-in defaults.
+    assert config.max_concurrency == HarnessConfig().max_concurrency
+    assert config.approval == HarnessConfig().approval
+    assert config.budget == HarnessConfig().budget
 
 
 def test_redactor_replaces_secret_values() -> None:

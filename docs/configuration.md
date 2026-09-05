@@ -123,7 +123,9 @@ verbosity = "compact"                   # compact | verbose | debug
 - `openai:gpt-4o-mini`, `openai:gpt-4o`
 - `anthropic:claude-3-5-haiku-latest`, `anthropic:claude-sonnet-4-5`
 - `google-gla:gemini-2.0-flash` (AI Studio; `google-vertex:` also available)
-- `mock:echo` (offline; always available)
+- anything from your `models.json` custom providers
+- `mock:echo` (offline echo stub for demos/tests; explicit selection only —
+  never auto-selected, never listed as a provider)
 
 Unknown prefixes fail fast with a `ProviderError` naming the valid
 prefixes.

@@ -50,9 +50,8 @@ def test_providers_json_lists_providers(repo: Any) -> None:
     assert result.exit_code == 0
     data = json.loads(result.output)
     names = [p["name"] for p in data["providers"]]
-    assert {"openai", "anthropic", "google", "mock"} <= set(names)
-    mock = next(p for p in data["providers"] if p["name"] == "mock")
-    assert mock["available"] is True
+    assert {"openai", "anthropic", "google"} <= set(names)
+    assert "mock" not in names  # the offline echo model is not a provider
 
 
 def test_doctor_json(repo: Any) -> None:

@@ -239,6 +239,12 @@ class Harness:
         for result in results:
             usage = usage.add(result.usage)
 
+        # Task failures must not hide behind a "completed" run: surface them.
+        if status == RunStatus.completed and any(r.status == TaskStatus.failed for r in results):
+            status = RunStatus.failed
+            failed = [r.task_id for r in results if r.status == TaskStatus.failed]
+            error = "task(s) failed: " + ", ".join(failed)
+
         self.sessions.finish_run(
             session, run, status=status, error=error, usage=usage, task_results=results
         )
@@ -279,11 +285,23 @@ class Harness:
     async def chat_turn(
         self, session_id: str, user_text: str, *, model_override: str | None = None
     ) -> str:
-        """One interactive chat turn using the mock/real provider."""
+        """One interactive chat turn. Errors surface in the reply text."""
         session = self.sessions.load(session_id)
         self.sessions.add_message(session, role="user", content=user_text)
         outcome = await self.run(user_text, model_override=model_override, session_id=session_id)
-        assistant_text = outcome.results[-1].summary if outcome.results else "(no response)"
+
+        if outcome.results:
+            result = outcome.results[-1]
+            if result.status.value == "completed":
+                assistant_text = result.summary
+            else:
+                detail = "; ".join(result.errors) if result.errors else "no details"
+                assistant_text = f"error ({result.status.value}): {detail}"
+        elif outcome.error:
+            assistant_text = f"error: {outcome.error}"
+        else:
+            assistant_text = "(no response)"
+
         session = self.sessions.load(session_id)
         self.sessions.add_message(session, role="assistant", content=assistant_text)
         return assistant_text

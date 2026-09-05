@@ -207,32 +207,43 @@ class ChatRepl:
             return _PlainSession()
 
     # The prompt message and status bar are rebuilt on every iteration so the
-    # boxed header always shows the live model / mode / thinking state.
+    # boxed header always shows the live provider / model / mode / thinking.
 
     def _prompt_message(self) -> str:
-        _provider, model = self._active()
-        header = header_line(model, mode_glyph(self.mode), thinking_glyph(self.thinking))
+        provider, model = self._active()
+        header = header_line(provider, model, mode_glyph(self.mode), thinking_glyph(self.thinking))
         return header + "\n│ ❯ "
 
     def _status_bar(self) -> str:
-        hint = self._typing_hint()
-        provider, model = self._active()
-        return status_bar(
-            provider,
-            model,
-            self.thinking,
-            mode_glyph(self.mode),
-            self._context_used(),
-            self._context_max(),
-            hint=hint,
-        )
+        try:
+            hint = self._typing_hint()
+            provider, model = self._active()
+            return status_bar(
+                provider,
+                model,
+                self.thinking,
+                mode_glyph(self.mode),
+                self._context_used(),
+                self._context_max(),
+                hint=hint,
+            )
+        except Exception:
+            return "om-harness"
 
     def _typing_hint(self) -> str | None:
-        buffer_text = getattr(self, "_current_text", "")
-        if not buffer_text.startswith("/"):
+        # Live buffer text (so slash hints appear while typing). Outside the
+        # prompt_toolkit app (tests, piped input) there is no buffer.
+        try:
+            from prompt_toolkit.application import get_app_or_none
+
+            app = get_app_or_none()
+            text = app.current_buffer.text if app is not None else ""
+        except Exception:
+            text = ""
+        if not text.startswith("/"):
             return None
         model_names = [name for name, _label in self._model_names()]
-        return args_hint_for(buffer_text, model_names)
+        return args_hint_for(text, model_names)
 
     def _model_names(self) -> list[tuple[str, str]]:
         try:
@@ -292,6 +303,22 @@ class ChatRepl:
         line = activity.summary_line()
         if line != "no tool activity":
             self.renderer.line(DisplayLine(level=LineLevel.dim, icon="◇", text=line))
+        # Always-on status in the text flow (visible even without a toolbar).
+        provider, model = self._active()
+        self.renderer.line(
+            DisplayLine(
+                level=LineLevel.dim,
+                icon="▁",
+                text=status_bar(
+                    provider,
+                    model,
+                    self.thinking,
+                    mode_glyph(self.mode),
+                    self._context_used(),
+                    self._context_max(),
+                ),
+            )
+        )
 
     async def _pump(
         self, offset_holder: list[int], rendered: set[str], streamed: list[str]

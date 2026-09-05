@@ -95,6 +95,8 @@ _ICONS = {
 
 # Compact mode shows only these events; verbose adds tool/handoff details;
 # debug adds everything (including model call bookkeeping).
+# Failures are ALWAYS shown regardless of verbosity — errors must never be
+# invisible to the user.
 _COMPACT_TYPES = {
     EventType.RUN_STARTED,
     EventType.PLAN_CREATED,
@@ -102,6 +104,11 @@ _COMPACT_TYPES = {
     EventType.RUN_FAILED,
     EventType.RUN_CANCELLED,
     EventType.CHECKPOINT_SAVED,
+    # failure visibility (never filtered out)
+    EventType.AGENT_FAILED,
+    EventType.TASK_FAILED,
+    EventType.TOOL_CALL_FAILED,
+    EventType.TOOL_CALL_DENIED,
 }
 _VERBOSE_EXTRA = {
     EventType.AGENT_STARTED,
@@ -259,9 +266,9 @@ def usage_bar(used_tokens: int, max_tokens: int, width: int = 10) -> str:
     return f"{bar} {fmt(used_tokens)}/{fmt(max_tokens)}"
 
 
-def header_line(model: str, mode: str, thinking: str, width: int = 64) -> str:
+def header_line(provider: str, model: str, mode: str, thinking: str, width: int = 64) -> str:
     """Top border of the input box with state baked in."""
-    state = f"om · {model} · {mode} · {thinking}"
+    state = f"om · {provider} · {model} · {mode} · {thinking}"
     if len(state) > width - 4:
         state = state[: width - 7] + "…"
     filler = "─" * max(0, width - len(state) - 4)

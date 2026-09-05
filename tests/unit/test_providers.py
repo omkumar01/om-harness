@@ -27,14 +27,17 @@ def test_registry_availability_follows_env_keys() -> None:
     registry = ProviderRegistry(env={"OPENAI_API_KEY": FAKE_OPENAI_KEY})
     assert registry.is_available("openai")
     assert not registry.is_available("anthropic")
-    assert registry.is_available("mock")  # mock always available
+    # The offline echo model is never a provider: it exists only for
+    # explicit mock: configuration (tests/demos), never auto-routing.
+    assert registry.is_available("mock")
 
 
 def test_registry_lists_known_providers() -> None:
     registry = ProviderRegistry(env={})
     infos = registry.available_providers()
     names = {info.name for info in infos}
-    assert {"openai", "anthropic", "google", "mock"} <= names
+    assert {"openai", "anthropic", "google"} <= names
+    assert "mock" not in names  # mock is not a listed provider
 
 
 def test_registry_rejects_unknown_prefix() -> None:
@@ -132,9 +135,11 @@ def test_auto_route_prefers_available_providers() -> None:
     assert model.startswith("anthropic:")
 
 
-def test_router_falls_back_to_default_when_no_keys() -> None:
+def test_no_keys_means_default_returned_and_runner_reports_unavailable() -> None:
+    """With no providers configured, routing returns the default and the
+    runner fails with a clear error — mock is never silently substituted."""
     router = _router()
-    assert router.select(TaskType.general) == "mock:echo"
+    assert router.select(TaskType.general) == "openai:gpt-4o-mini"
 
 
 def test_fallback_chain_appends_configured_fallbacks() -> None:

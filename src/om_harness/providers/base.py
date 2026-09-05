@@ -68,13 +68,12 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_model="google-gla:gemini-2.0-flash",
         strong_model="google-gla:gemini-2.0-flash",
     ),
-    ProviderSpec(
-        name="mock",
-        prefix="mock:",
-        env_keys=(),  # always available
-        default_model="mock:echo",
-        strong_model="mock:echo",
-    ),
 )
+
+# The offline echo model is NOT a provider: it is never listed, never
+# auto-routed, and never selected automatically. It only answers when a
+# user explicitly configures ``mock:<name>`` as their model (offline demos,
+# tests). See registry.make_model.
+MOCK_PREFIX = "mock:"
 
 BY_NAME = {spec.name: spec for spec in PROVIDERS}

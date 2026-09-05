@@ -109,7 +109,7 @@ def test_status_bar_always_shows_provider_model_thinking_mode() -> None:
 def test_header_line_shows_state() -> None:
     from om_harness.ui.components import header_line
 
-    header = header_line("openai:gpt-4o", "⏵⏵ auto", "◐ thinking:med")
+    header = header_line("openai", "openai:gpt-4o", "⏵⏵ auto", "◐ thinking:med")
     assert header.startswith("╭─")
     assert header.endswith("╮")
     assert "openai:gpt-4o" in header
@@ -214,6 +214,43 @@ def test_thinking_persists_via_config_update(tmp_path: Any, home: Any) -> None:
     apply_config_update(harness, "thinking", "high")
     assert harness.config.thinking == "high"
     assert load_config(tmp_path, env={}).thinking == "high"
+
+
+# -- failure visibility --------------------------------------------------------
+
+
+def test_failure_events_visible_in_compact_mode() -> None:
+    from om_harness.config.loader import Verbosity
+    from om_harness.models.events import Event, EventType
+    from om_harness.ui.components import event_to_display
+
+    for failure_type in (
+        EventType.AGENT_FAILED,
+        EventType.TASK_FAILED,
+        EventType.TOOL_CALL_FAILED,
+    ):
+        display = event_to_display(Event(type=failure_type), Verbosity.compact)
+        assert display is not None, f"{failure_type} must be visible in compact mode"
+
+
+def test_unavailable_provider_surfaces_error_in_chat(tmp_path: Any, home: Any) -> None:
+    """Selecting a model whose provider is unavailable must produce a clear
+    error in the chat reply — never a silent empty response."""
+    import asyncio
+    import subprocess
+
+    subprocess.run(
+        ["git", "init", "-q"], cwd=tmp_path, check=True, capture_output=True, shell=False
+    )
+    from om_harness.config.user_settings import apply_config_update
+    from om_harness.harness import Harness
+
+    harness = Harness(repo_root=tmp_path, env={})
+    apply_config_update(harness, "model", "openai:gpt-4o")  # no API key configured
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    reply = asyncio.run(harness.chat_turn(session.session_id, "hi"))
+    assert reply.startswith("error")
+    assert "not available" in reply
 
 
 # -- prompt chrome (hermetic, no TTY needed) ----------------------------------

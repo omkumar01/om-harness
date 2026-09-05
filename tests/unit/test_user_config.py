@@ -15,7 +15,7 @@ from om_harness.providers.models_json import load_models_json
 
 
 def test_user_config_file_loaded(tmp_path: Any, home: Any) -> None:
-    (home / "config").mkdir(parents=True)
+    (home / "config").mkdir(parents=True, exist_ok=True)
     (home / "config" / "config.toml").write_text(
         '[routing]\ndefault_model = "openai:gpt-4.1"\n',
         encoding="utf-8",
@@ -25,7 +25,7 @@ def test_user_config_file_loaded(tmp_path: Any, home: Any) -> None:
 
 
 def test_repo_config_overrides_user_config(tmp_path: Any, home: Any) -> None:
-    (home / "config").mkdir(parents=True)
+    (home / "config").mkdir(parents=True, exist_ok=True)
     (home / "config" / "config.toml").write_text(
         'max_concurrency = 2\n[routing]\ndefault_model = "openai:gpt-4.1"\n',
         encoding="utf-8",
@@ -40,7 +40,7 @@ def test_repo_config_overrides_user_config(tmp_path: Any, home: Any) -> None:
 
 
 def test_env_overrides_both_levels(tmp_path: Any, home: Any, monkeypatch: Any) -> None:
-    (home / "config").mkdir(parents=True)
+    (home / "config").mkdir(parents=True, exist_ok=True)
     (home / "config" / "config.toml").write_text(
         '[routing]\ndefault_model = "openai:gpt-4.1"\n', encoding="utf-8"
     )
@@ -53,7 +53,7 @@ def test_env_overrides_both_levels(tmp_path: Any, home: Any, monkeypatch: Any) -
 
 
 def test_nested_table_merge(tmp_path: Any, home: Any) -> None:
-    (home / "config").mkdir(parents=True)
+    (home / "config").mkdir(parents=True, exist_ok=True)
     (home / "config" / "config.toml").write_text(
         '[routing.task_models]\nexplore = "openai:gpt-4o-mini"\n', encoding="utf-8"
     )

@@ -16,7 +16,13 @@ import os
 from collections.abc import Mapping
 from typing import Any
 
-from om_harness.providers.base import BY_NAME, PROVIDERS, ModelSpec, ProviderInfo
+from om_harness.providers.base import (
+    BY_NAME,
+    MOCK_PREFIX,
+    PROVIDERS,
+    ModelSpec,
+    ProviderInfo,
+)
 from om_harness.providers.mock import make_echo_model
 from om_harness.providers.models_json import ModelsJsonConfig, validate_provider_url
 
@@ -41,13 +47,14 @@ class ProviderRegistry:
     # -- availability --------------------------------------------------------
 
     def is_available(self, provider_name: str) -> bool:
+        # The offline echo model is only usable via explicit configuration.
+        if provider_name == "mock":
+            return True
         if self._custom is not None and provider_name in self._custom.providers:
             return self._custom.providers[provider_name].is_available(dict(self._env))
         spec = BY_NAME.get(provider_name)
         if spec is None:
             return False
-        if spec.name == "mock":
-            return True
         return any(self._env.get(key) for key in spec.env_keys)
 
     def available_providers(self) -> list[ProviderInfo]:
@@ -93,12 +100,16 @@ class ProviderRegistry:
             )
         return summaries
 
-    def first_available(self) -> str:
-        """First real provider with a key, else the mock provider."""
+    def first_available(self) -> str | None:
+        """First real provider with a key, or None when nothing is configured.
+
+        The offline echo model is deliberately excluded: it is never
+        auto-selected.
+        """
         for spec in PROVIDERS:
-            if spec.name != "mock" and self.is_available(spec.name):
+            if self.is_available(spec.name):
                 return spec.name
-        return "mock"
+        return None
 
     @property
     def custom_provider_names(self) -> list[str]:
@@ -108,6 +119,13 @@ class ProviderRegistry:
     # -- model strings -------------------------------------------------------
 
     def resolve_model(self, model_str: str) -> ModelSpec:
+        # Offline echo model: explicit selection only (never auto-routed).
+        if model_str.startswith(MOCK_PREFIX):
+            model_name = model_str[len(MOCK_PREFIX) :]
+            if not model_name:
+                raise ProviderError(f"malformed model string {model_str!r}")
+            return ModelSpec(provider="mock", model_name=model_name)
+
         for spec in PROVIDERS:
             if model_str.startswith(spec.prefix):
                 model_name = model_str[len(spec.prefix) :]
@@ -133,8 +151,12 @@ class ProviderRegistry:
         )
 
     def default_model(self) -> str:
-        spec = BY_NAME[self.first_available()]
-        return spec.default_model
+        provider = self.first_available()
+        if provider is None:
+            raise ProviderError(
+                "no provider available — set an API key or add providers to models.json"
+            )
+        return BY_NAME[provider].default_model
 
     # -- model factory -------------------------------------------------------
 
@@ -203,10 +225,10 @@ class ProviderRegistry:
         if self._custom is not None and parsed.provider in self._custom.providers:
             return self._make_custom_model(parsed)
 
-        provider = BY_NAME[parsed.provider]
-
-        if provider.name == "mock":
+        if parsed.provider == "mock":  # explicit selection only
             return make_echo_model()
+
+        provider = BY_NAME[parsed.provider]
 
         if not self.is_available(provider.name):
             return None

@@ -44,14 +44,25 @@ class ModelRouter:
         if parsed is not None and self.registry.is_available(parsed.provider):
             return self.config.default_model
 
-        if self.config.auto_route:
-            return self._auto_route(task_type)
+        try:
+            if self.config.auto_route:
+                return self._auto_route(task_type)
+        except ProviderError:
+            # Nothing configured anywhere: fall through and return the
+            # default; the runner surfaces a clear "provider unavailable"
+            # error instead of silently substituting a different model.
+            pass
 
         return self.config.default_model
 
     def _auto_route(self, task_type: TaskType) -> str:
         """Pick from whichever provider has a key; strong/cheap per task type."""
         provider_name = self.registry.first_available()
+        if provider_name is None:
+            raise ProviderError(
+                "no provider available — set an API key (OPENAI_API_KEY, "
+                "ANTHROPIC_API_KEY, GOOGLE_API_KEY) or add providers to models.json"
+            )
         spec = BY_NAME[provider_name]
         if task_type in STRONG_TASK_TYPES:
             return spec.strong_model

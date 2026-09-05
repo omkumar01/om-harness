@@ -50,8 +50,9 @@ decision is visible.
 - **Multi-provider** via [PydanticAI](https://ai.pydantic.dev): OpenAI,
   Anthropic, Google/Gemini plus any OpenAI-compatible endpoint through one
   interface; your selected model always wins, with per-task routing and
-  automatic fallback when a provider is unavailable — plus a fully offline
-  `mock:` provider for demos and tests.
+  clear errors when a provider is unavailable. An offline echo model exists
+  only for explicit `mock:` configuration in demos and tests — it is never
+  auto-selected.
 - **Async orchestration**: parallel fan-out/fan-in with deterministic
   aggregation, per-task timeouts, retries with backoff, and cancellation.
 - **Repository tools**: file list/read/search/write/edit, safe shell
@@ -185,8 +186,10 @@ stored, never logged):
 export OPENAI_API_KEY=...        # or ANTHROPIC_API_KEY / GOOGLE_API_KEY
 ```
 
-With no keys at all, om-harness still works offline using the built-in mock
-provider — useful for demos, tests, and CI.
+With no keys configured, model requests fail with a clear "provider
+unavailable" error — om-harness never silently substitutes a different
+model. For offline demos and tests you can explicitly set `mock:echo` as
+your model (an echo stub, never auto-selected).
 
 Optional file configuration in `om-harness.toml` (or `[tool.om-harness]` in
 `pyproject.toml`):
