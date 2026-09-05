@@ -131,10 +131,29 @@ class AgentRunner:
                 )
             )
 
+    def _explain_model_error(self, model_str: str, exc: Exception) -> str:
+        """Convert provider exceptions into actionable error messages."""
+        message = str(exc) or type(exc).__name__
+        lowered = message.lower()
+        if "connection" in lowered or "timed out" in lowered or "timeout" in lowered:
+            endpoint = self.provider_registry.endpoint_for(model_str)
+            hint = f" — could not reach {endpoint or 'the model endpoint'}."
+            if "127.0.0.1" in (endpoint or "") or "localhost" in (endpoint or ""):
+                hint += (
+                    " Is the local model server running, and is the port in models.json correct?"
+                )
+            else:
+                hint += " Check network access, API key, and any proxy settings."
+            return message + hint
+        return message
+
     def _resolve_model(self, task: Task, model_override: str | None) -> tuple[str, Any]:
         model_str = self.router.select(task.task_type, override=model_override)
         factory = self.model_factory or self.provider_registry.make_model
-        model = factory(model_str)
+        try:
+            model = factory(model_str)
+        except Exception as exc:
+            raise RunnerError(self._explain_model_error(model_str, exc)) from exc
         if model is None:
             raise RunnerError(f"provider for {model_str!r} is not available (missing API key?)")
         return model_str, model
@@ -199,13 +218,14 @@ class AgentRunner:
             self._emit(EventType.AGENT_FAILED, task_id=task.id, agent=task.role, error="cancelled")
             raise
         except Exception as exc:
+            message = self._explain_model_error(model_str, exc)
             self._emit(
                 EventType.AGENT_FAILED,
                 task_id=task.id,
                 agent=task.role,
-                error=str(exc),
+                error=message,
             )
-            return TaskResult(task_id=task.id, status=TaskStatus.failed, errors=[str(exc)])
+            return TaskResult(task_id=task.id, status=TaskStatus.failed, errors=[message])
 
         usage = response.usage  # RunUsage instance in pydantic-ai 2.x
         cost = float(usage.cost) if usage.cost else None

@@ -144,67 +144,98 @@ class ChatRepl:
         )
 
     def _make_prompt_session(self) -> Any:  # pragma: no cover - TTY wiring
-        """PromptSession with keybindings, completer, and live status bar."""
+        """PromptSession with keybindings, completer, and live status bar.
+
+        If prompt_toolkit cannot attach to this terminal, the reason is
+        reported once and we fall back to a plain prompt that still shows
+        the boxed header and status line before every input. On Windows a
+        stray ``TERM`` environment variable (inherited from Git Bash, often
+        set by shell prompts) breaks console detection, so construction is
+        retried once with it cleared.
+        """
+        import os
+
         try:
-            from prompt_toolkit import PromptSession
-            from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-            from prompt_toolkit.key_binding import KeyBindings
-
-            kb = KeyBindings()
-            repl = self
-
-            @kb.add("enter")
-            def _submit(event: Any) -> None:
-                buffer = event.current_buffer
-                if buffer.text.endswith("\\"):
-                    buffer.delete_before_cursor(1)
-                    buffer.insert_text("\n")
-                else:
-                    buffer.validate_and_handle()
-
-            @kb.add("escape", "enter")  # Alt+Enter: newline
-            def _newline(event: Any) -> None:
-                event.current_buffer.insert_text("\n")
-
-            @kb.add("backtab")  # Shift+Tab: cycle approval mode
-            def _mode(event: Any) -> None:
-                from om_harness.config.loader import ApprovalPolicy
-
-                repl.harness.config.approval.policy = ApprovalPolicy(cycle_approval(repl.mode))
-                event.app.invalidate()
-
-            @kb.add("c-t")  # cycle thinking level (persisted)
-            def _thinking(event: Any) -> None:
-                with contextlib.suppress(SettingsError):
-                    apply_config_update(repl.harness, "thinking", cycle_thinking(repl.thinking))
-                event.app.invalidate()
-
-            @kb.add("c-o")  # cycle verbosity
-            def _verbosity(event: Any) -> None:
-                repl.verbosity = Verbosity(cycle_verbosity(repl.verbosity.value))
-                event.app.invalidate()
-
-            @kb.add("c-m")  # model selector
-            def _selector(event: Any) -> None:
-                event.app.exit(exception=_ModelSelectorRequested(), style="class:aborting")
-
-            @kb.add("c-g")  # help
-            def _help(event: Any) -> None:
-                repl._cmd_help()
-                event.app.invalidate()
-
-            @kb.add("c-l")  # clear screen
-            def _clear(event: Any) -> None:
-                event.app.renderer.clear()
-
-            return PromptSession(
-                completer=SlashCompleter(self),
-                complete_while_typing=True,
-                auto_suggest=AutoSuggestFromHistory(),
-                key_bindings=kb,
+            return self._build_prompt_session()
+        except Exception as first_error:
+            reason = str(first_error) or type(first_error).__name__
+            saved_term = os.environ.get("TERM")
+            if saved_term:
+                os.environ.pop("TERM")
+                try:
+                    return self._build_prompt_session()
+                except Exception as second_error:
+                    reason = str(second_error) or type(second_error).__name__
+                finally:
+                    os.environ["TERM"] = saved_term
+            self.renderer.line(
+                DisplayLine(
+                    level=LineLevel.warn,
+                    icon="⚠",
+                    text=f"rich terminal unavailable ({reason}) — falling back to "
+                    "basic input; keybindings and the pinned footer are disabled",
+                )
             )
-        except Exception:
-            return _PlainSession()
+            return _PlainSession(self)
+
+    def _build_prompt_session(self) -> Any:
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+        from prompt_toolkit.key_binding import KeyBindings
+
+        kb = KeyBindings()
+        repl = self
+
+        @kb.add("enter")
+        def _submit(event: Any) -> None:
+            buffer = event.current_buffer
+            if buffer.text.endswith("\\"):
+                buffer.delete_before_cursor(1)
+                buffer.insert_text("\n")
+            else:
+                buffer.validate_and_handle()
+
+        @kb.add("escape", "enter")  # Alt+Enter: newline
+        def _newline(event: Any) -> None:
+            event.current_buffer.insert_text("\n")
+
+        @kb.add("backtab")  # Shift+Tab: cycle approval mode
+        def _mode(event: Any) -> None:
+            from om_harness.config.loader import ApprovalPolicy
+
+            repl.harness.config.approval.policy = ApprovalPolicy(cycle_approval(repl.mode))
+            event.app.invalidate()
+
+        @kb.add("c-t")  # cycle thinking level (persisted)
+        def _thinking(event: Any) -> None:
+            with contextlib.suppress(SettingsError):
+                apply_config_update(repl.harness, "thinking", cycle_thinking(repl.thinking))
+            event.app.invalidate()
+
+        @kb.add("c-o")  # cycle verbosity
+        def _verbosity(event: Any) -> None:
+            repl.verbosity = Verbosity(cycle_verbosity(repl.verbosity.value))
+            event.app.invalidate()
+
+        @kb.add("c-m")  # model selector
+        def _selector(event: Any) -> None:
+            event.app.exit(exception=_ModelSelectorRequested(), style="class:aborting")
+
+        @kb.add("c-g")  # help
+        def _help(event: Any) -> None:
+            repl._cmd_help()
+            event.app.invalidate()
+
+        @kb.add("c-l")  # clear screen
+        def _clear(event: Any) -> None:
+            event.app.renderer.clear()
+
+        return PromptSession(
+            completer=SlashCompleter(self),
+            complete_while_typing=True,
+            auto_suggest=AutoSuggestFromHistory(),
+            key_bindings=kb,
+        )
 
     # The prompt message and status bar are rebuilt on every iteration so the
     # boxed header always shows the live provider / model / mode / thinking.
@@ -639,7 +670,22 @@ class _ModelSelectorRequested(Exception):
 
 
 class _PlainSession:
-    """Fallback prompt for non-TTY environments (piped input, tests)."""
+    """Fallback prompt for terminals where prompt_toolkit cannot attach.
+
+    Still prints the boxed header and the full status line before every
+    input, so the provider/model/mode/thinking footer stays visible even
+    without a rich terminal.
+    """
+
+    def __init__(self, repl: ChatRepl | None = None) -> None:
+        self.repl = repl
 
     def prompt(self, **kwargs: Any) -> str:
+        if self.repl is not None:
+            try:
+                self.repl.renderer.console.print(self.repl._prompt_message())
+                bar = self.repl._status_bar()
+                self.repl.renderer.console.print(f"[dim]{escape(bar)}[/]")
+            except Exception:
+                pass
         return input("om> ")

@@ -331,3 +331,90 @@ def test_show_welcome_prints_panel(tmp_path: Any, home: Any, capsys: Any) -> Non
     repl._show_welcome()
     out = capsys.readouterr().out
     assert "om-harness" in out
+
+
+# -- diagnostics and terminal fallback ------------------------------------------
+
+
+def test_endpoint_for_custom_provider(tmp_path: Any, home: Any) -> None:
+    import subprocess
+
+    subprocess.run(
+        ["git", "init", "-q"], cwd=tmp_path, check=True, capture_output=True, shell=False
+    )
+    (tmp_path / "models.json").write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "lm-studio": {
+                        "baseUrl": "http://127.0.0.1:8080/v1",
+                        "api": "openai-completions",
+                        "allowLocal": True,
+                        "models": [{"id": "ornith-1.0-9b"}],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    from om_harness.harness import Harness
+
+    harness = Harness(repo_root=tmp_path, env={})
+    assert (
+        harness.provider_registry.endpoint_for("lm-studio:ornith-1.0-9b")
+        == "http://127.0.0.1:8080/v1"
+    )
+
+
+def test_connection_error_includes_endpoint_hint(tmp_path: Any, home: Any) -> None:
+    import asyncio
+    import subprocess
+
+    subprocess.run(
+        ["git", "init", "-q"], cwd=tmp_path, check=True, capture_output=True, shell=False
+    )
+    (tmp_path / "models.json").write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "lm-studio": {
+                        "baseUrl": "http://127.0.0.1:8080/v1",
+                        "api": "openai-completions",
+                        "allowLocal": True,
+                        "models": [{"id": "ornith-1.0-9b"}],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    from om_harness.config.user_settings import apply_config_update
+    from om_harness.harness import Harness
+
+    harness = Harness(repo_root=tmp_path, env={})
+    apply_config_update(harness, "model", "lm-studio:ornith-1.0-9b")
+
+    def failing_factory(_model_str: str) -> Any:
+        raise Exception("Connection error.")
+
+    harness.runner.model_factory = failing_factory
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    reply = asyncio.run(harness.chat_turn(session.session_id, "hi"))
+    assert "127.0.0.1:8080" in reply
+    assert "server running" in reply
+
+
+def test_plain_session_still_shows_header_and_status(
+    tmp_path: Any, home: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    """Even without prompt_toolkit, the header + status render per prompt."""
+    repl = _repl_for(tmp_path, home)
+    from om_harness.ui.repl import _PlainSession
+
+    session = _PlainSession(repl)
+    monkeypatch.setattr("builtins.input", lambda _prompt: "exit")
+    session.prompt()
+    out = capsys.readouterr().out
+    assert "╭─ om · " in out
+    assert "provider" in out
+    assert "thinking" in out

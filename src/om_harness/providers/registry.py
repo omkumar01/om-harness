@@ -35,6 +35,20 @@ class ProviderError(Exception):
     """Raised for unknown providers or malformed model strings."""
 
 
+def _local_http_client() -> Any:
+    """An HTTP client that bypasses system proxies (for local endpoints).
+
+    A configured HTTP(S)_PROXY would otherwise swallow 127.0.0.1 traffic
+    and surface as a bogus "Connection error". The openai SDK vendors its
+    own httpx (``httpx2``); fall back to plain httpx on older versions.
+    """
+    try:
+        import httpx2 as httpx_mod
+    except ImportError:  # pragma: no cover - depends on SDK version
+        import httpx as httpx_mod  # type: ignore[no-redef]
+    return httpx_mod.AsyncClient(trust_env=False)
+
+
 class ProviderRegistry:
     def __init__(
         self,
@@ -160,6 +174,20 @@ class ProviderRegistry:
 
     # -- model factory -------------------------------------------------------
 
+    def endpoint_for(self, model_str: str) -> str | None:
+        """The HTTP endpoint a model string would talk to (for diagnostics)."""
+        try:
+            parsed = self.resolve_model(model_str)
+            if self._custom is not None and parsed.provider in self._custom.providers:
+                provider = self._custom.providers[parsed.provider]
+                model = self._custom.get_model(parsed.provider, parsed.model_name)
+                return provider.base_url_for(model)
+            if parsed.provider == "openai":
+                return "https://api.openai.com/v1"
+        except Exception:
+            return None
+        return None
+
     def _api_key(self, provider_name: str) -> str | None:
         spec = BY_NAME[provider_name]
         for key in spec.env_keys:
@@ -192,8 +220,21 @@ class ProviderRegistry:
         model_name = parsed.model_name
 
         if provider.api == "openai-completions":
+            from openai import AsyncOpenAI
             from pydantic_ai.models.openai import OpenAIChatModel
             from pydantic_ai.providers.openai import OpenAIProvider
+
+            if provider.allow_local:
+                # Local endpoints must bypass system proxies: a configured
+                # HTTP(S)_PROXY would otherwise swallow 127.0.0.1 traffic
+                # and surface as a bogus "Connection error". The openai SDK
+                # vendors its own httpx (httpx2); fall back to plain httpx.
+                client = AsyncOpenAI(
+                    base_url=base_url,
+                    api_key=api_key,
+                    http_client=_local_http_client(),
+                )
+                return OpenAIChatModel(model_name, provider=OpenAIProvider(openai_client=client))
 
             return OpenAIChatModel(
                 model_name,
