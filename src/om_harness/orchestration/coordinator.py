@@ -46,7 +46,7 @@ class Coordinator:
         self.run_id = run_id
         self.backoff_base_seconds = 0.05
 
-    def _emit(self, event_type: EventType, **data: object) -> None:
+    def _emit(self, event_type: EventType, **data: str) -> None:
         if self.bus is not None:
             self.bus.publish_sync(
                 make_event(event_type, session_id=self.session_id, run_id=self.run_id, **data)
