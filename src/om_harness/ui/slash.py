@@ -25,6 +25,7 @@ class SlashCommand:
 COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("model", "Pick or set the active model", "[provider:model]"),
     SlashCommand("thinking", "Show or set the thinking level", "[off|low|medium|high]"),
+    SlashCommand("mode", "Cycle approval mode (ask / auto / deny)"),
     SlashCommand("config", "Show or change configuration", "[set <key> <value>]"),
     SlashCommand("providers", "List providers and availability"),
     SlashCommand("tools", "List available tools and permissions"),

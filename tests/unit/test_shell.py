@@ -418,3 +418,24 @@ def test_plain_session_still_shows_header_and_status(
     assert "╭─ om · " in out
     assert "provider" in out
     assert "thinking" in out
+
+
+# -- keybinding regression ------------------------------------------------------
+
+
+def test_shift_tab_binding_key_is_valid() -> None:
+    """Regression: 'backtab' is an invalid key name on some platforms and
+    used to abort building the entire rich session; 's-tab' is correct."""
+    from prompt_toolkit.key_binding import KeyBindings
+
+    kb = KeyBindings()
+    kb.add("s-tab")(lambda event: None)  # must not raise
+
+
+def test_slash_mode_cycles_approval(tmp_path: Any, home: Any) -> None:
+    repl = _repl_for(tmp_path, home)
+    harness = repl.harness
+    before = harness.config.approval.policy.value
+    assert repl._slash_command("/mode")
+    after = harness.config.approval.policy.value
+    assert after != before

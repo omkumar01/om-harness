@@ -135,9 +135,9 @@ class ChatRepl:
             self.run_turn(text)
 
     def _show_welcome(self) -> None:  # pragma: no cover - interactive
-        providers = [
-            p.name for p in self.harness.provider_registry.available_providers() if p.available
-        ]
+        registry = self.harness.provider_registry
+        providers = [p.name for p in registry.available_providers() if p.available]
+        providers += [n for n in registry.custom_provider_names if registry.is_available(n)]
         body = welcome_panel(__version__, self.model, providers, first_run=False)
         self.renderer.console.print(
             Panel(body, border_style="cyan", padding=(0, 2), title="✦", title_align="left")
@@ -186,7 +186,23 @@ class ChatRepl:
         kb = KeyBindings()
         repl = self
 
-        @kb.add("enter")
+        def bind(groups: Any, func: Any) -> None:
+            """Register a binding under the first valid key name.
+
+            Key names differ across prompt_toolkit versions and platforms
+            (e.g. Shift+Tab is 's-tab' here but 'backtab' elsewhere); one
+            invalid key must never abort building the whole session.
+            """
+            if isinstance(groups, str):
+                groups = (groups,)
+            for group in groups:
+                keys = tuple(group) if isinstance(group, (tuple, list)) else (group,)
+                try:
+                    kb.add(*keys)(func)
+                    return
+                except Exception:
+                    continue
+
         def _submit(event: Any) -> None:
             buffer = event.current_buffer
             if buffer.text.endswith("\\"):
@@ -195,40 +211,42 @@ class ChatRepl:
             else:
                 buffer.validate_and_handle()
 
-        @kb.add("escape", "enter")  # Alt+Enter: newline
         def _newline(event: Any) -> None:
             event.current_buffer.insert_text("\n")
 
-        @kb.add("backtab")  # Shift+Tab: cycle approval mode
         def _mode(event: Any) -> None:
             from om_harness.config.loader import ApprovalPolicy
 
             repl.harness.config.approval.policy = ApprovalPolicy(cycle_approval(repl.mode))
             event.app.invalidate()
 
-        @kb.add("c-t")  # cycle thinking level (persisted)
         def _thinking(event: Any) -> None:
             with contextlib.suppress(SettingsError):
                 apply_config_update(repl.harness, "thinking", cycle_thinking(repl.thinking))
             event.app.invalidate()
 
-        @kb.add("c-o")  # cycle verbosity
         def _verbosity(event: Any) -> None:
             repl.verbosity = Verbosity(cycle_verbosity(repl.verbosity.value))
             event.app.invalidate()
 
-        @kb.add("c-m")  # model selector
         def _selector(event: Any) -> None:
             event.app.exit(exception=_ModelSelectorRequested(), style="class:aborting")
 
-        @kb.add("c-g")  # help
         def _help(event: Any) -> None:
             repl._cmd_help()
             event.app.invalidate()
 
-        @kb.add("c-l")  # clear screen
         def _clear(event: Any) -> None:
             event.app.renderer.clear()
+
+        bind("enter", _submit)
+        bind([("escape", "enter"), "c-j"], _newline)
+        bind(["s-tab", "backtab"], _mode)  # Shift+Tab: cycle approval mode
+        bind("c-t", _thinking)
+        bind("c-o", _verbosity)
+        bind("c-m", _selector)
+        bind("c-g", _help)
+        bind("c-l", _clear)
 
         return PromptSession(
             completer=SlashCompleter(self),
@@ -405,6 +423,11 @@ class ChatRepl:
                 self._set_thinking(args[0])
             else:
                 self.renderer.info(f"thinking level: {self.thinking}")
+        elif command == "mode":
+            from om_harness.config.loader import ApprovalPolicy
+
+            self.harness.config.approval.policy = ApprovalPolicy(cycle_approval(self.mode))
+            self.renderer.info(f"approval mode: {mode_glyph(self.mode)}")
         elif command == "config":
             self._cmd_config(args)
         elif command == "providers":
@@ -435,6 +458,7 @@ class ChatRepl:
                 for c in (
                     "model",
                     "thinking",
+                    "mode",
                     "config",
                     "providers",
                     "tools",
