@@ -172,8 +172,9 @@ class Harness:
     ) -> RunOutcome:
         """Execute one goal end-to-end: plan, coordinate, persist, checkpoint."""
         session = self._resolve_session(session_id=session_id, resume=resume)
-        # Start the event pump before the run so run lifecycle events persist.
-        pump_task = asyncio.create_task(self._pump_events(session.session_id))
+        # Events are persisted after the run from the bus history (bounded,
+        # deterministic) — no pump race with cancellation.
+        event_offset = len(self.bus.history)
         run = self.sessions.start_run(
             session,
             goal=goal,
@@ -241,9 +242,9 @@ class Harness:
                 completed_task_ids=[r.task_id for r in results if r.status == TaskStatus.completed],
             )
 
-        pump_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await pump_task
+        for event in self.bus.history[event_offset:]:
+            if event.session_id == session.session_id:
+                self.store.append_event(event)
 
         return RunOutcome(
             session_id=session.session_id,
@@ -280,17 +281,6 @@ class Harness:
                 )
                 return latest
         return self.sessions.create(repo_root=str(self.repo_root))
-
-    async def _pump_events(self, session_id: str) -> None:
-        """Persist every event of this session to the JSONL event log."""
-        reader = self.bus.subscribe()
-        try:
-            while True:
-                event = await reader.get()
-                if event.session_id == session_id:
-                    self.store.append_event(event)
-        except asyncio.CancelledError:
-            raise
 
     # -- introspection -------------------------------------------------------
 
