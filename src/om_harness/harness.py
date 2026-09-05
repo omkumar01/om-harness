@@ -184,6 +184,8 @@ class Harness:
         self.runner.run_id = run.run_id
         self.coordinator.session_id = session.session_id
         self.coordinator.run_id = run.run_id
+        self.executor.session_id = session.session_id
+        self.executor.run_id = run.run_id
 
         plan = self.planner.build_plan(goal, strategy=strategy, tasks=tasks)
         self.bus.publish_sync(

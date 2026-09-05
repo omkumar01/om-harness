@@ -2,16 +2,50 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from typing import Any
 
 REDACTED = "***REDACTED***"
 
-# Key names whose values are always sensitive regardless of content.
-SENSITIVE_KEY_PATTERN = re.compile(
-    r"(api[_-]?key|secret|token|password|authorization|credential)", re.IGNORECASE
+# Exact key names whose values are always sensitive regardless of content.
+SENSITIVE_KEY_NAMES = {
+    "token",
+    "auth",
+    "authentication",
+    "api_key",
+    "apikey",
+    "access_token",
+    "auth_token",
+    "bearer_token",
+    "refresh_token",
+    "session_token",
+    "password",
+    "passwd",
+    "secret",
+    "secret_key",
+    "credentials",
+    "authorization",
+    "proxy_authorization",
+}
+
+# Substring patterns for compound names (kept narrow so usage metrics like
+# ``input_tokens``/``output_tokens`` are NOT redacted).
+SENSITIVE_KEY_SUBSTRINGS = (
+    "api_key",
+    "apikey",
+    "secret",
+    "password",
+    "authorization",
+    "credential",
 )
+
+
+def _is_sensitive_key(key: str) -> bool:
+    lowered = key.lower()
+    if lowered in SENSITIVE_KEY_NAMES:
+        return True
+    return any(pattern in lowered for pattern in SENSITIVE_KEY_SUBSTRINGS)
+
 
 STANDARD_KEY_VARS = (
     "OPENAI_API_KEY",
@@ -56,7 +90,7 @@ class SecretRedactor:
         if isinstance(value, dict):
             out: dict[str, Any] = {}
             for key, item in value.items():
-                if isinstance(key, str) and SENSITIVE_KEY_PATTERN.search(key):
+                if isinstance(key, str) and _is_sensitive_key(key):
                     out[key] = REDACTED
                 else:
                     out[key] = self.redact_value(item)

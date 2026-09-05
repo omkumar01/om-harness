@@ -88,7 +88,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-q"
+addopts = "-q -m 'not integration'"
 filterwarnings = ["ignore::DeprecationWarning"]
 markers = [
     "integration: tests that require real provider credentials (deselected by default)",

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 
+from rich.markup import escape
+
 from om_harness.config.loader import Verbosity
 from om_harness.harness import Harness
 from om_harness.ui.components import DisplayLine, LineLevel, event_to_display
@@ -84,7 +86,7 @@ class ChatRepl:
             self.renderer.error(f"turn failed: {exc}")
             return
         self._print_new_events(offset_before)
-        self.renderer.console.print(f"[green]om[/] {reply}")
+        self.renderer.console.print(f"[green]om[/] {escape(reply)}")
 
     def _print_new_events(self, offset_before: int) -> None:
         for event in self.harness.bus.history[offset_before:]:
