@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "mimosa-hook-status/v1",
+  "recordedAt": "2026-09-05T17:17:07.649Z",
+  "sessionId": "sess_b981284e-be4a-4fba-b623-5551706b4b6b",
+  "event": "PostToolUse",
+  "toolName": "Write",
+  "file": "src/om_harness/__init__.py",
+  "outcome": "clear",
+  "coverage": "complete",
+  "findingCount": 0,
+  "durationMs": 9,
+  "hostState": "hook_complete",
+  "reportHint": ".mimosa/reports/"
+}
