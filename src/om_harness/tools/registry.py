@@ -133,7 +133,7 @@ class GuardedToolExecutor:
             return ToolResult.fail(f"unexpected tool error: {exc}")
 
         event_type = EventType.TOOL_CALL_COMPLETED if result.ok else EventType.TOOL_CALL_FAILED
-        emit(event_type, ok=result.ok, truncated=result.truncated)
+        emit(event_type, ok=result.ok, truncated=result.truncated, **result.data)
         return result
 
     @staticmethod

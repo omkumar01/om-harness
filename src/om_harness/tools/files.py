@@ -185,7 +185,10 @@ class WriteFile(BaseTool[WriteFileArgs]):
             raise ToolError(f"{args.path!r} is a directory")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(args.content, encoding="utf-8")
-        return ToolResult(output=f"Wrote {len(args.content)} characters to {args.path}")
+        return ToolResult(
+            output=f"Wrote {len(args.content)} characters to {args.path}",
+            data={"path": args.path},
+        )
 
 
 class EditFileArgs(BaseModel):
@@ -221,4 +224,7 @@ class EditFile(BaseTool[EditFileArgs]):
             updated = text.replace(args.old_string, args.new_string, 1)
             replaced = 1
         path.write_text(updated, encoding="utf-8")
-        return ToolResult(output=f"Edited {args.path} ({replaced} replacement(s))")
+        return ToolResult(
+            output=f"Edited {args.path} ({replaced} replacement(s))",
+            data={"path": args.path},
+        )

@@ -126,6 +126,9 @@ om Fixed add() in calc.py — tests pass.
 - **Live activity**: tool calls, commands, and approvals stream as they
   happen; per-turn summaries show files read, files modified, commands run,
   and tokens spent. Replies stream token-by-token from streaming models.
+- **Live thinking & file changes**: the model's reasoning streams as it
+  thinks (`/thinking` toggles), and every file the agent writes or edits
+  renders a real-time diff (`✎ path` with +/− lines, or a new-file marker).
 - **Slash commands with hints**: type `/` for an autocomplete popup with
   descriptions; the status bar shows argument hints while you type.
 

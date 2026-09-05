@@ -46,6 +46,9 @@ EXIT_COMMANDS = {"exit", "quit", ":q", "q"}
 PUMP_INTERVAL_SECONDS = 0.05
 CONTEXT_BUDGET_TOKENS = 200_000  # gauge ceiling when no budget is configured
 
+# Tools whose completions trigger a real-time file-change display.
+_CHANGE_TOOLS = {"write_file", "edit_file"}
+
 # Keybinding table: action -> candidate key groups. The first group whose
 # key names are all valid for this platform wins. Note: Ctrl+M is physically
 # the same key as Enter, so the model selector must never bind to it.
@@ -73,10 +76,11 @@ class ChatRepl:
         self.harness = harness
         self.session_id = session_id
         self.verbosity = verbosity
-        self.show_thinking = False
+        self.show_thinking = True
         self.renderer = renderer or TerminalRenderer()
         self.total_usage = TokenUsage()
         self._last_ctrl_c = 0.0
+        self._pending_paths: dict[str, str] = {}
 
     # -- state ----------------------------------------------------------------
 
@@ -409,6 +413,20 @@ class ChatRepl:
             raise
 
     def _render_event(self, event: Event, streamed: list[str] | None = None) -> None:
+        # File changes made by the agent are always shown in real time,
+        # regardless of verbosity.
+        if event.type == EventType.TOOL_CALL_STARTED:
+            tool = event.data.get("tool")
+            arguments = event.data.get("arguments") or {}
+            if tool in _CHANGE_TOOLS and isinstance(arguments.get("path"), str):
+                self._pending_paths[tool] = arguments["path"]
+        elif event.type == EventType.TOOL_CALL_COMPLETED:
+            tool = event.data.get("tool") or ""
+            if tool in _CHANGE_TOOLS and event.data.get("ok", True):
+                path = event.data.get("path") or self._pending_paths.pop(tool, None)
+                self._show_file_change(path)
+                return
+            self._pending_paths.pop(tool, None)
         if event.type == EventType.MESSAGE_DELTA:
             kind = event.data.get("kind")
             delta = event.data.get("delta") or ""
@@ -422,6 +440,64 @@ class ChatRepl:
         display = event_to_display(event, self.verbosity)
         if display is not None:
             self.renderer.line(display)
+
+    # -- real-time file-change rendering --------------------------------------
+
+    def _show_file_change(self, path: str | None) -> None:
+        """Render a live diff/status for a file the agent just changed."""
+        if not path:
+            return
+        self.renderer.console.print(f"[yellow]✎[/] [bold]{escape(path)}[/]")
+        diff = self._diff_preview(path)
+        if diff:
+            for line in diff.splitlines():
+                if line.startswith("+") and not line.startswith("+++"):
+                    self.renderer.console.print(f"[green]{escape(line)}[/]")
+                elif line.startswith("-") and not line.startswith("---"):
+                    self.renderer.console.print(f"[red]{escape(line)}[/]")
+                elif line.startswith("@@"):
+                    self.renderer.console.print(f"[dim]{escape(line)}[/]")
+                else:
+                    self.renderer.console.print(f"[dim]{escape(line)}[/]")
+
+    def _diff_preview(self, path: str, max_lines: int = 16) -> str | None:
+        """Short git diff for a changed file; falls back to new-file marker."""
+        import subprocess
+
+        try:
+            proc = subprocess.run(
+                ["git", "diff", "--unified=0", "--", path],
+                cwd=str(self.harness.repo_root),
+                capture_output=True,
+                text=True,
+                timeout=5,
+                shell=False,
+            )
+            if proc.returncode != 0:
+                return None
+            if proc.stdout.strip():
+                lines = [
+                    line
+                    for line in proc.stdout.splitlines()
+                    if not line.startswith(("diff ", "index ", "--- ", "+++ "))
+                ]
+                preview = lines[:max_lines]
+                if len(lines) > max_lines:
+                    preview.append(f"... +{len(lines) - max_lines} more diff lines")
+                return "\n".join(preview)
+            status = subprocess.run(
+                ["git", "status", "--porcelain", "--", path],
+                cwd=str(self.harness.repo_root),
+                capture_output=True,
+                text=True,
+                timeout=5,
+                shell=False,
+            )
+            if status.stdout.strip().startswith("??"):
+                return "(new file — not yet tracked)"
+        except Exception:
+            return None
+        return None
 
     # -- slash commands ------------------------------------------------------
 
@@ -443,7 +519,12 @@ class ChatRepl:
             if args:
                 self._set_thinking(args[0])
             else:
-                self.renderer.info(f"thinking level: {self.thinking}")
+                self.show_thinking = not self.show_thinking
+                state = "on — reasoning streams live" if self.show_thinking else "off"
+                self.renderer.info(
+                    f"thinking display {state} (model level: {self.thinking}; "
+                    "/thinking <level> or Ctrl+T changes it)"
+                )
         elif command == "mode":
             from om_harness.config.loader import ApprovalPolicy
 
