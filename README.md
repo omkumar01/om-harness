@@ -73,19 +73,19 @@ Requires Python 3.11+. The recommended installer is
 [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv tool install om-harness                    # from PyPI
+uv tool install om-harness                    # from PyPI (not released yet)
 ```
 
 or directly from GitHub:
 
 ```bash
-uv tool install git+https://github.com/om-harness/om-harness
+uv tool install git+https://github.com/omkumar01/om-harness
 ```
 
 From a clone (for development):
 
 ```bash
-git clone https://github.com/om-harness/om-harness
+git clone https://github.com/omkumar01/om-harness
 cd om-harness
 uv sync
 uv tool install . --force 

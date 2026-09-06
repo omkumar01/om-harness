@@ -10,7 +10,7 @@ Requirements: [uv](https://docs.astral.sh/uv/) and Python 3.11+ (any of
 3.11/3.12/3.13).
 
 ```bash
-git clone https://github.com/om-harness/om-harness
+git clone https://github.com/omkumar01/om-harness
 cd om-harness
 uv sync                 # creates .venv and installs everything
 uv run om-harness --version
@@ -171,7 +171,7 @@ Users can install either way:
 
 ```bash
 uv tool install om-harness                                  # PyPI
-uv tool install git+https://github.com/om-harness/om-harness  # GitHub
+uv tool install git+https://github.com/omkumar01/om-harness  # GitHub
 ```
 
 ## Commit / PR conventions
