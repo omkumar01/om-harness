@@ -119,12 +119,19 @@ def uninstall_plugin(name: str, *, plugins_dir: Path | None = None) -> None:
 
 
 def _remove_tree(path: Path) -> None:
-    """rmtree that clears read-only files (git objects are often read-only)."""
+    """rmtree that clears read-only files (git objects are often read-only).
+
+    Permission bits are *added*, never replaced: on POSIX, setting a mode of
+    ``S_IWRITE`` alone would strip the execute bit from directories and make
+    them unsearchable, which ``shutil.rmtree`` then cannot traverse.
+    """
     import stat
 
     for entry in path.rglob("*"):
         with contextlib.suppress(OSError):
-            entry.chmod(stat.S_IWRITE)
+            st = entry.lstat()
+            add = stat.S_IWRITE | (stat.S_IEXEC if stat.S_ISDIR(st.st_mode) else 0)
+            entry.chmod(st.st_mode | add)
     shutil.rmtree(path)
 
 
