@@ -152,6 +152,7 @@ om Fixed add() in calc.py — tests pass.
 
 `/model [name]` (no args: arrow-key selector) · `/thinking [level]` ·
 `/config` · `/config set <key> <value>` · `/providers` · `/tools` ·
+`/skills` · `/skill <name> [args]` · `/plugins` ·
 `/status` · `/sessions` · `/checkpoint [label]` · `/setup` · `/verbose` ·
 `/help` · `/exit`.
 
@@ -159,6 +160,33 @@ om Fixed add() in calc.py — tests pass.
 custom OpenAI-compatible endpoint to `~/.om-harness/config/models.json`),
 model selection, approval mode, verbosity, and thinking level — everything
 persists to `~/.om-harness/`.
+
+### Skills and plugins
+
+Skills are small instruction packs (`SKILL.md` with a `name` /
+`description` frontmatter) that the agent loads on demand. They are
+discovered from `~/.agents/skills`, the repo's `.agents/skills` (repo wins
+on name conflicts), extra dirs from `[skills].extra_dirs` in config, and
+from installed plugins. Only names and one-line descriptions go into the
+system prompt; the full instructions are fetched through the read-only
+`skill` tool when a task matches — keeping context small by default.
+
+Plugins are git repositories installed with:
+
+```
+om-harness install git:github.com/obra/superpowers   # or a local path
+om-harness plugins                                   # list what's installed
+om-harness uninstall superpowers                     # remove
+```
+
+A plugin may carry an optional `plugin.json` manifest (`name`,
+`description`) and skills in `skills/*/SKILL.md` or
+`.agents/skills/*/SKILL.md`. Plugin skills are fully active in every flow
+(chat, run, agent): they appear in `/skills` and the system prompt under
+their namespaced name (`<plugin>:<skill>`, plain name when unique), and the
+agent can load them with the `skill` tool. In the shell, `/skill <name>
+[args]` runs a turn that follows a skill. Disable everything with
+`[skills] enabled = false` in `om-harness.toml`.
 
 ### Thinking levels
 

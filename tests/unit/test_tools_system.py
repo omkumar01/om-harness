@@ -44,6 +44,25 @@ async def test_run_shell_captures_output(ctx: ToolContext) -> None:
     assert RunShell.permission == Permission.mutating
 
 
+async def test_run_shell_event_data_carries_output_preview(ctx: ToolContext) -> None:
+    """The completion event carries a trimmed output copy for the UI."""
+    result = await RunShell(ctx).run(RunShell.Args(command="echo line-one"))
+    assert result.data["command"] == "echo line-one"
+    assert result.data["exit_code"] == 0
+    assert "line-one" in result.data["output"]
+    assert result.data["output_lines"] == 1
+
+
+async def test_run_shell_event_output_is_tail_capped(ctx: ToolContext) -> None:
+    from om_harness.tools.shell import _EVENT_OUTPUT_CHARS
+
+    command = "python -c \"print('x' * 20000)\""
+    result = await RunShell(ctx).run(RunShell.Args(command=command))
+    event_output = result.data["output"]
+    assert len(event_output) <= _EVENT_OUTPUT_CHARS + 1  # + leading ellipsis
+    assert event_output.startswith("…") or len(result.output) <= _EVENT_OUTPUT_CHARS
+
+
 async def test_run_shell_reports_nonzero_exit(ctx: ToolContext) -> None:
     import sys
 

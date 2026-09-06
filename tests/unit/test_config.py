@@ -19,6 +19,22 @@ def test_defaults() -> None:
     assert config.verbosity == "compact"
 
 
+def test_skills_defaults_enabled() -> None:
+    config = HarnessConfig()
+    assert config.skills.enabled is True
+    assert config.skills.extra_dirs == []
+
+
+def test_skills_config_from_toml(tmp_path: Any) -> None:
+    (tmp_path / "om-harness.toml").write_text(
+        "[skills]\nenabled = false\nextra_dirs = ['skill-packs/a']\n",
+        encoding="utf-8",
+    )
+    config = load_config(tmp_path)
+    assert config.skills.enabled is False
+    assert config.skills.extra_dirs == ["skill-packs/a"]
+
+
 def test_load_from_om_harness_toml(tmp_path: Any) -> None:
     (tmp_path / "om-harness.toml").write_text(
         """

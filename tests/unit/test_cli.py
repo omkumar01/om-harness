@@ -171,3 +171,71 @@ def test_subcommands_do_not_launch_interactive(repo: Any, monkeypatch: pytest.Mo
     monkeypatch.setattr(app_module, "launch_interactive", fail_launch)
     result = _invoke("status", "--json")
     assert result.exit_code == 0
+
+
+# -- plugins: install / plugins / uninstall ------------------------------------
+
+
+def _make_git_plugin(origin: Any) -> None:
+    skills = origin / "skills" / "demo-skill"
+    skills.mkdir(parents=True)
+    (skills / "SKILL.md").write_text(
+        "---\nname: demo-skill\ndescription: a demo skill\n---\n\nDo demo things.\n",
+        encoding="utf-8",
+    )
+    (origin / "plugin.json").write_text(
+        '{"name": "demo", "description": "demo plugin"}\n', encoding="utf-8"
+    )
+    subprocess.run(["git", "init", "-q"], cwd=origin, check=True, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=origin, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
+        cwd=origin,
+        check=True,
+        capture_output=True,
+    )
+
+
+def test_plugin_install_list_uninstall_roundtrip(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    origin = tmp_path / "demo-origin"
+    origin.mkdir()
+    _make_git_plugin(origin)
+    monkeypatch.setenv("OM_HARNESS_PLUGINS_DIR", str(tmp_path / "plugins"))
+
+    result = _invoke("install", str(origin))
+    assert result.exit_code == 0
+    assert "demo" in result.output
+    assert "demo-skill" in result.output
+
+    result = _invoke("plugins")
+    assert result.exit_code == 0
+    assert "demo" in result.output
+
+    result = _invoke("uninstall", "demo")
+    assert result.exit_code == 0
+    result = _invoke("plugins")
+    assert "demo" not in result.output
+
+
+def test_plugin_commands_json_output(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    origin = tmp_path / "demo-origin"
+    origin.mkdir()
+    _make_git_plugin(origin)
+    monkeypatch.setenv("OM_HARNESS_PLUGINS_DIR", str(tmp_path / "plugins"))
+
+    result = _invoke("install", str(origin), "--json")
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["name"] == "demo"
+    assert payload["skills"] == ["demo-skill"]
+
+    result = _invoke("plugins", "--json")
+    payload = json.loads(result.output)
+    assert [p["name"] for p in payload["plugins"]] == ["demo"]
+
+
+def test_uninstall_unknown_plugin_exits_nonzero(tmp_path: Any) -> None:
+    result = runner.invoke(app, ["uninstall", "ghost"], catch_exceptions=False)
+    assert result.exit_code != 0

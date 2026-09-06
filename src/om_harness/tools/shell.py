@@ -47,6 +47,10 @@ _CATASTROPHIC_PATTERNS = (
 # Intermediate pipeline stages pass at most this many bytes downstream.
 _INTERMEDIATE_CAP_BYTES = 1_000_000
 
+# Output copied into the completion event (UI preview); tail-biased because
+# errors surface at the end of command output.
+_EVENT_OUTPUT_CHARS = 4_000
+
 
 def build_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     """Snapshot os.environ minus anything that looks like a credential."""
@@ -275,10 +279,21 @@ class RunShell(BaseTool[RunShellArgs]):
         if err_acc:
             output += "\nstderr:\n" + "\n".join(err_acc)
         text, cap_hit = cap_text(output, self.ctx.max_output_chars, "command output")
+        # The event-bus copy is a tail preview (errors live at the end); the
+        # model still receives the full `output` via the tool result.
+        event_output = text[-_EVENT_OUTPUT_CHARS:]
+        if len(text) > _EVENT_OUTPUT_CHARS:
+            event_output = "…" + event_output
         return ToolResult(
             ok=code == 0,
             output=text,
             error=None if code == 0 else f"command exited with code {code}",
             truncated=truncated or cap_hit,
-            data={"exit_code": code, "command": command, "stages": total_stages},
+            data={
+                "exit_code": code,
+                "command": command,
+                "stages": total_stages,
+                "output": event_output,
+                "output_lines": len(output.splitlines()),
+            },
         )

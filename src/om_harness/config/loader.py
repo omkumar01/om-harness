@@ -92,12 +92,20 @@ class ContextConfig(BaseModel):
     max_file_read_chars: int = 40_000  # per-read cap before truncation
 
 
+class SkillsConfig(BaseModel):
+    """Skill/plugin discovery knobs (see skills and plugins packages)."""
+
+    enabled: bool = True
+    extra_dirs: list[str] = Field(default_factory=list)  # additional skill dirs
+
+
 class HarnessConfig(BaseModel):
     version: int = 1
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
     approval: ApprovalConfig = Field(default_factory=ApprovalConfig)
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
+    skills: SkillsConfig = Field(default_factory=SkillsConfig)
     max_concurrency: int = 4
     agent_timeout_seconds: float = 600.0
     tool_timeout_seconds: float = 60.0

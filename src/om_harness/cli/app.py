@@ -404,3 +404,99 @@ def config_show(
         return
     for key, value in harness.config.model_dump(mode="json").items():
         console.print(f"[bold]{key}:[/] {json.dumps(value, default=str)}")
+
+
+@app.command()
+def install(
+    source: str = typer.Argument(
+        ..., help="Plugin source, e.g. git:github.com/obra/superpowers or a local path."
+    ),
+    json_mode: bool = typer.Option(False, "--json"),
+) -> None:
+    """Install (or update) a plugin from git; its skills become available."""
+    from om_harness.plugins import PluginError, install_plugin
+
+    try:
+        plugin = install_plugin(source)
+    except PluginError as exc:
+        if json_mode:
+            typer.echo(_json_payload({"error": str(exc)}))
+        else:
+            err_console.print(f"install failed: {exc}")
+        raise typer.Exit(1) from exc
+    skill_names = [s.name for s in plugin.skills]
+    if json_mode:
+        typer.echo(
+            _json_payload(
+                {
+                    "name": plugin.name,
+                    "skills": skill_names,
+                    "path": str(plugin.path),
+                    "source": plugin.source,
+                }
+            )
+        )
+        return
+    console.print(
+        f"[green]✔[/] installed plugin [bold]{plugin.name}[/] ({len(skill_names)} skills)"
+    )
+    for name in skill_names:
+        console.print(f"  {name}")
+    console.print("[dim]Restart om-harness (or start a new run) to pick up the new skills.[/]")
+
+
+@app.command()
+def uninstall(
+    name: str = typer.Argument(..., help="Installed plugin name (see `om-harness plugins`)."),
+    json_mode: bool = typer.Option(False, "--json"),
+) -> None:
+    """Remove an installed plugin."""
+    from om_harness.plugins import PluginError, uninstall_plugin
+
+    try:
+        uninstall_plugin(name)
+    except PluginError as exc:
+        if json_mode:
+            typer.echo(_json_payload({"error": str(exc)}))
+        else:
+            err_console.print(str(exc))
+        raise typer.Exit(1) from exc
+    if json_mode:
+        typer.echo(_json_payload({"uninstalled": name}))
+    else:
+        console.print(f"[green]✔[/] uninstalled plugin [bold]{name}[/]")
+
+
+@app.command()
+def plugins(
+    json_mode: bool = typer.Option(False, "--json"),
+) -> None:
+    """List installed plugins and the skills they provide."""
+    from om_harness.plugins import load_plugins
+
+    installed = load_plugins()
+    if json_mode:
+        typer.echo(
+            _json_payload(
+                {
+                    "plugins": [
+                        {
+                            "name": p.name,
+                            "description": p.description,
+                            "source": p.source,
+                            "path": str(p.path),
+                            "skills": [s.name for s in p.skills],
+                        }
+                        for p in installed
+                    ]
+                }
+            )
+        )
+        return
+    if not installed:
+        console.print("No plugins installed. Try: om-harness install git:github.com/<owner>/<repo>")
+        return
+    for plugin in installed:
+        console.print(f"[bold]{plugin.name}[/] {len(plugin.skills)} skills")
+        for skill in plugin.skills:
+            console.print(f"  {skill.name}: [dim]{skill.description}[/]")

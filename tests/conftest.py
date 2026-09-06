@@ -27,5 +27,10 @@ def _write_mock_default(home_dir: Any) -> None:
 def _isolated_user_home(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: Any) -> Any:
     home_dir = tmp_path_factory.mktemp("om-home")
     monkeypatch.setenv("OM_HARNESS_HOME", str(home_dir))
+    # Keep skill/plugin discovery hermetic too: tests must never see the
+    # developer's real ~/.agents/skills or installed plugins. Tests that
+    # need skills/plugins point these env vars at their own fixtures.
+    monkeypatch.setenv("OM_HARNESS_SKILLS_DIR", str(home_dir / "skills"))
+    monkeypatch.setenv("OM_HARNESS_PLUGINS_DIR", str(home_dir / "plugins"))
     _write_mock_default(home_dir)
     return home_dir

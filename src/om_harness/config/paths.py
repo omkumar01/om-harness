@@ -19,6 +19,8 @@ import os
 from pathlib import Path
 
 HOME_ENV_VAR = "OM_HARNESS_HOME"
+SKILLS_ENV_VAR = "OM_HARNESS_SKILLS_DIR"
+PLUGINS_ENV_VAR = "OM_HARNESS_PLUGINS_DIR"
 
 
 def user_home() -> Path:
@@ -43,6 +45,22 @@ def user_config_file() -> Path:
 
 def user_cache_dir() -> Path:
     return user_home() / "cache"
+
+
+def user_skills_dir() -> Path:
+    """User-level skills: $OM_HARNESS_SKILLS_DIR or ~/.agents/skills."""
+    override = os.environ.get(SKILLS_ENV_VAR)
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".agents" / "skills"
+
+
+def user_plugins_dir() -> Path:
+    """Installed plugins root: $OM_HARNESS_PLUGINS_DIR or ~/.om-harness/plugins."""
+    override = os.environ.get(PLUGINS_ENV_VAR)
+    if override:
+        return Path(override).expanduser()
+    return user_home() / "plugins"
 
 
 def ensure_user_dirs() -> bool:

@@ -9,7 +9,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from om_harness.tools.base import BaseTool, Permission, ToolError, ToolResult, cap_text
-from om_harness.tools.shell import build_env, run_process
+from om_harness.tools.shell import _EVENT_OUTPUT_CHARS, build_env, run_process
 
 
 def detect_test_runner(repo_root: Path) -> tuple[str, list[str]] | None:
@@ -56,10 +56,19 @@ class RunTests(BaseTool[RunTestsArgs]):
         if err and name == "pytest":
             output += err  # pytest writes the summary to stdout; keep stderr for context
         text, cap_hit = cap_text(output, self.ctx.max_output_chars, "test output")
+        event_output = text[-_EVENT_OUTPUT_CHARS:]
+        if len(text) > _EVENT_OUTPUT_CHARS:
+            event_output = "…" + event_output
         return ToolResult(
             ok=code == 0,
             output=text,
             error=None if code == 0 else f"tests failed with exit code {code}",
             truncated=truncated or cap_hit,
-            data={"runner": name, "exit_code": code},
+            data={
+                "runner": name,
+                "exit_code": code,
+                "command": " ".join(argv),
+                "output": event_output,
+                "output_lines": len(output.splitlines()),
+            },
         )

@@ -19,7 +19,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from om_harness.config.loader import ApprovalPolicy, HarnessConfig, load_config
-from om_harness.config.paths import user_cache_dir
+from om_harness.config.paths import user_cache_dir, user_skills_dir
 from om_harness.config.secrets import SecretRedactor
 from om_harness.context.assembler import ContextAssembler
 from om_harness.context.repo_index import RepoIndex
@@ -36,6 +36,7 @@ from om_harness.models.task import (
 )
 from om_harness.orchestration.coordinator import Coordinator
 from om_harness.orchestration.planner import Planner
+from om_harness.plugins import load_plugins, merge_plugin_skills
 from om_harness.providers.models_json import load_models_json
 from om_harness.providers.registry import ProviderRegistry
 from om_harness.providers.router import ModelRouter
@@ -43,10 +44,12 @@ from om_harness.runtime.bus import EventBus
 from om_harness.runtime.runner import AgentRunner
 from om_harness.runtime.session import SessionManager
 from om_harness.runtime.store import LocalStore
+from om_harness.skills import Skill, discover_skills
 from om_harness.tools import build_default_registry
 from om_harness.tools.approval import ApprovalEngine
 from om_harness.tools.base import ToolContext
 from om_harness.tools.registry import GuardedToolExecutor
+from om_harness.tools.skill import SkillTool
 
 STATE_DIR_NAME = ".om-harness"
 GITIGNORE_MARKER = ".om-harness/"
@@ -134,7 +137,8 @@ class Harness:
             cache_dir=user_cache_dir(),
             cache_ttl_hours=self.config.context.index_cache_ttl_hours,
         )
-        self.assembler = ContextAssembler(self.config, self.repo_index)
+        self.skills = self._resolve_skills()
+        self.assembler = ContextAssembler(self.config, self.repo_index, skills=self.skills)
 
         tool_ctx = ToolContext(
             repo_root=self.repo_root,
@@ -142,6 +146,8 @@ class Harness:
             max_file_read_chars=self.config.context.max_file_read_chars,
         )
         self.registry = build_default_registry(tool_ctx)
+        if self.skills:
+            self.registry.register(SkillTool(tool_ctx, skills=self.skills))
         self.approval = ApprovalEngine(
             self.config.approval, interactive=interactive, confirmer=confirmer
         )
@@ -159,6 +165,27 @@ class Harness:
         self.coordinator = Coordinator(runner=self.runner, config=self.config, bus=self.bus)
 
     # -- repo setup ----------------------------------------------------------
+
+    def _resolve_skills(self) -> dict[str, Skill]:
+        """Discover skills: user dir, config extra dirs, then repo (repo wins).
+
+        Installed plugins are then folded in under namespaced names
+        (``plugin:skill``); their plain names fill only free slots, so
+        user/repo skills keep precedence on collisions.
+        """
+        if not self.config.skills.enabled:
+            return {}
+        sources: list[tuple[Path, str]] = [
+            (user_skills_dir(), "user"),
+        ]
+        for extra in self.config.skills.extra_dirs:
+            path = Path(extra)
+            if not path.is_absolute():
+                path = self.repo_root / path
+            sources.append((path, "extra"))
+        sources.append((self.repo_root / ".agents" / "skills", "repo"))
+        skills = discover_skills(sources)
+        return merge_plugin_skills(skills, load_plugins())
 
     @staticmethod
     def init_repo(repo_root: Path) -> None:
@@ -327,6 +354,7 @@ class Harness:
         latest = repo_sessions[0] if repo_sessions else None
         return {
             "repo_root": str(self.repo_root),
+            "skills": sorted(self.skills),
             # The model a general task would actually use (accounts for which
             # providers have keys configured).
             "default_model": self.router.select(TaskType.general),

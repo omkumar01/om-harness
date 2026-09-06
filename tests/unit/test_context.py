@@ -104,6 +104,26 @@ def test_assemble_includes_repo_context_and_instruction(tmp_path: Any) -> None:
     assert "print" not in assembled.system_prompt  # role prompt stays minimal
 
 
+def test_system_prompt_lists_available_skills(tmp_path: Any) -> None:
+    from om_harness.skills import Skill
+
+    skills = {"analyse": Skill(name="analyse", description="pick a method", path=tmp_path / "x")}
+    assembler = ContextAssembler(
+        config=HarnessConfig(), repo_index=RepoIndex(tmp_path), skills=skills
+    )
+    prompt = assembler.system_prompt("chat")
+    assert "Available skills" in prompt
+    assert "analyse" in prompt
+    assert "pick a method" in prompt
+    assert "`skill` tool" in prompt
+
+
+def test_system_prompt_unchanged_without_skills(tmp_path: Any) -> None:
+    plain = ContextAssembler(config=HarnessConfig(), repo_index=RepoIndex(tmp_path))
+    with_empty = ContextAssembler(config=HarnessConfig(), repo_index=RepoIndex(tmp_path), skills={})
+    assert plain.system_prompt("chat") == with_empty.system_prompt("chat")
+
+
 def test_history_beyond_cap_is_trimmed_not_resent(tmp_path: Any) -> None:
     from om_harness.models.session import Message, MessageRole
 

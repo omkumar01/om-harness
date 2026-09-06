@@ -101,3 +101,67 @@ def test_approval_ask_non_interactive_denies_writes(repo: Any) -> None:
     result = asyncio.run(attempt())
     assert not result.ok  # type: ignore[attr-defined]
     assert not (repo / "x.txt").exists()
+
+
+# -- skills integration --------------------------------------------------------
+
+
+def _write_skill(skills_dir: Any, name: str, description: str, body: str = "Do it.") -> None:
+    d = skills_dir / name
+    d.mkdir(parents=True)
+    (d / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {description}\n---\n\n{body}\n",
+        encoding="utf-8",
+    )
+
+
+def test_skills_from_user_dir_are_discovered_and_active(
+    repo: Any, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    skills_dir = tmp_path / "agents-skills"
+    _write_skill(skills_dir, "analyse", "pick a method")
+    monkeypatch.setenv("OM_HARNESS_SKILLS_DIR", str(skills_dir))
+
+    harness = Harness(repo_root=repo, env={})
+    assert "analyse" in harness.skills
+    assert harness.registry.has("skill")
+    assert harness.status()["skills"] == ["analyse"]
+    assert "analyse" in harness.assembler.system_prompt("chat")
+
+
+def test_repo_level_skills_override_user_skills(
+    repo: Any, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user_dir = tmp_path / "user-skills"
+    _write_skill(user_dir, "shared", "user version")
+    monkeypatch.setenv("OM_HARNESS_SKILLS_DIR", str(user_dir))
+    _write_skill(repo / ".agents" / "skills", "shared", "repo version")
+
+    harness = Harness(repo_root=repo, env={})
+    assert harness.skills["shared"].description == "repo version"
+    assert harness.skills["shared"].source == "repo"
+
+
+def test_skills_disabled_by_config_registers_no_tool(
+    repo: Any, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_skill(tmp_path / "s", "analyse", "pick a method")
+    monkeypatch.setenv("OM_HARNESS_SKILLS_DIR", str(tmp_path / "s"))
+    (repo / "om-harness.toml").write_text("[skills]\nenabled = false\n", encoding="utf-8")
+
+    harness = Harness(repo_root=repo, env={})
+    assert harness.skills == {}
+    assert not harness.registry.has("skill")
+
+
+def test_extra_skill_dirs_are_scanned(
+    repo: Any, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    extra = tmp_path / "extra-pack"
+    _write_skill(extra, "packed", "from extra dir")
+    (repo / "om-harness.toml").write_text(
+        f"[skills]\nextra_dirs = ['{extra.as_posix()}']\n", encoding="utf-8"
+    )
+
+    harness = Harness(repo_root=repo, env={})
+    assert harness.skills["packed"].description == "from extra dir"

@@ -48,6 +48,172 @@ def test_run_turn_survives_errors(tmp_path: Any, capsys: Any, monkeypatch: Any) 
     assert "model exploded" in out
 
 
+# -- live-stream robustness ----------------------------------------------------
+
+
+def test_pump_survives_render_error(
+    tmp_path: Any, home: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    """A render exception must not kill the live stream or the turn."""
+    import om_harness.ui.repl as repl_mod
+
+    harness = Harness(repo_root=_repo(tmp_path), env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id, verbosity=Verbosity.verbose)
+
+    original = repl_mod.event_to_display
+    calls = {"n": 0}
+
+    def flaky(event: Any, verbosity: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("render boom")
+        return original(event, verbosity)
+
+    monkeypatch.setattr(repl_mod, "event_to_display", flaky)
+    repl.run_turn("hello")
+    out = capsys.readouterr().out
+    assert "live stream interrupted" in out
+    assert "turn failed" not in out
+    assert "[mock" in out  # the turn itself completed
+
+
+def test_error_path_still_flushes_events(
+    tmp_path: Any, home: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    """When chat_turn raises, events emitted before the failure are rendered."""
+    from om_harness.models.events import EventType, make_event
+
+    harness = Harness(repo_root=_repo(tmp_path), env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id, verbosity=Verbosity.verbose)
+
+    async def fail_midway(*args: Any, **kwargs: Any) -> str:
+        harness.bus.publish_sync(
+            make_event(
+                EventType.PLAN_CREATED,
+                session_id=repl.session_id,
+                strategy="single",
+                task_count=1,
+                rationale="midway",
+            )
+        )
+        raise RuntimeError("model exploded")
+
+    monkeypatch.setattr(harness, "chat_turn", fail_midway)
+    repl.run_turn("hello")
+    out = capsys.readouterr().out
+    assert "turn failed" in out
+    assert "plan:" in out  # the event was not swallowed by the error path
+
+
+def test_thinking_deltas_render_and_close_the_line(
+    tmp_path: Any, home: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    """Thinking deltas stream inline and the line is closed before the reply."""
+    from om_harness.models.events import EventType, make_event
+
+    harness = Harness(repo_root=_repo(tmp_path), env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id)
+
+    async def stream_then_reply(*args: Any, **kwargs: Any) -> str:
+        for chunk in ("think ", "more "):
+            harness.bus.publish_sync(
+                make_event(
+                    EventType.MESSAGE_DELTA,
+                    session_id=repl.session_id,
+                    kind="thinking",
+                    delta=chunk,
+                )
+            )
+        return "the reply"
+
+    monkeypatch.setattr(harness, "chat_turn", stream_then_reply)
+    repl.run_turn("hello")
+    out = capsys.readouterr().out
+    assert "think more" in out
+    assert "the reply" in out
+    assert "no live stream" not in out  # deltas arrived, no diagnostic needed
+
+
+# -- command display -----------------------------------------------------------
+
+
+def _shell_turn_repl(tmp_path: Any, home: Any) -> ChatRepl:
+    """A REPL whose scripted model runs one shell command then replies."""
+    from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
+    from pydantic_ai.models.function import FunctionModel
+
+    harness = Harness(repo_root=_repo(tmp_path), env={}, approval_policy="auto")
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id)
+
+    async def respond(messages: Any, agent_info: Any) -> ModelResponse:
+        saw = any(
+            getattr(p, "part_kind", "") == "tool-return"
+            for m in messages
+            for p in getattr(m, "parts", [])
+        )
+        if not saw:
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        tool_name="run_shell",
+                        args={"command": "echo om-command-ran"},
+                        tool_call_id="c1",
+                    )
+                ]
+            )
+        return ModelResponse(parts=[TextPart(content="ran it")])
+
+    harness.runner.model_factory = lambda _s: FunctionModel(respond)
+    return repl
+
+
+def test_executed_command_rendered_with_collapsed_output(
+    tmp_path: Any, home: Any, capsys: Any
+) -> None:
+    repl = _shell_turn_repl(tmp_path, home)
+    repl.run_turn("run a command")
+    out = capsys.readouterr().out
+    assert "$" in out and "echo om-command-ran" in out
+    assert "om-command-ran" in out  # preview line
+    assert "Alt+O" in out  # collapsed-output affordance
+
+
+def test_output_slash_command_expands_last_output(tmp_path: Any, home: Any, capsys: Any) -> None:
+    repl = _shell_turn_repl(tmp_path, home)
+    repl.run_turn("run a command")
+    capsys.readouterr()
+    assert repl._slash_command("/output")
+    out = capsys.readouterr().out
+    assert "echo om-command-ran" in out
+    assert "om-command-ran" in out
+
+
+def test_output_recording_caps_history(tmp_path: Any, home: Any, capsys: Any) -> None:
+    from om_harness.models.events import EventType, make_event
+    from om_harness.ui.repl import _COMMAND_HISTORY_MAX
+
+    repl = _shell_turn_repl(tmp_path, home)
+    for i in range(_COMMAND_HISTORY_MAX + 5):
+        repl._render_event(
+            make_event(
+                EventType.TOOL_CALL_COMPLETED,
+                session_id=repl.session_id,
+                tool="run_shell",
+                command=f"cmd-{i}",
+                output=f"out-{i}",
+                exit_code=0,
+            )
+        )
+    assert len(repl._command_outputs) == _COMMAND_HISTORY_MAX
+    assert repl._slash_command("/output")
+    out = capsys.readouterr().out
+    assert "cmd-24" in out  # newest command still listed
+
+
 # -- slash commands -----------------------------------------------------------
 
 
@@ -204,3 +370,100 @@ def test_diff_preview_shows_changes_for_tracked_file(tmp_path: Any, home: Any, c
     assert "✎" in out
     assert "x = 2" in out
     assert "+" in out
+
+
+# -- skills and plugins slash commands -----------------------------------------
+
+
+def _write_skill_file(skills_dir: Any, name: str, description: str) -> None:
+    d = skills_dir / name
+    d.mkdir(parents=True)
+    (d / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {description}\n---\n\nDo {name} things.\n",
+        encoding="utf-8",
+    )
+
+
+def _skills_repl(tmp_path: Any, home: Any, monkeypatch: Any) -> tuple[ChatRepl, Harness]:
+    skills_dir = tmp_path / "agent-skills"
+    _write_skill_file(skills_dir, "analyse", "pick a method")
+    monkeypatch.setenv("OM_HARNESS_SKILLS_DIR", str(skills_dir))
+    harness = Harness(repo_root=_repo(tmp_path), env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    return ChatRepl(harness, session_id=session.session_id), harness
+
+
+def test_slash_skills_lists_discovered_skills(
+    tmp_path: Any, home: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    repl, _ = _skills_repl(tmp_path, home, monkeypatch)
+    assert repl._slash_command("/skills")
+    out = capsys.readouterr().out
+    assert "analyse" in out
+    assert "pick a method" in out
+
+
+def test_slash_plugins_lists_installed_plugins(
+    tmp_path: Any, home: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    import subprocess
+
+    origin = tmp_path / "demo-origin"
+    (origin / "skills" / "demo-skill").mkdir(parents=True)
+    (origin / "skills" / "demo-skill" / "SKILL.md").write_text(
+        "---\nname: demo-skill\ndescription: a demo skill\n---\nbody\n", encoding="utf-8"
+    )
+    (origin / "plugin.json").write_text(
+        '{"name": "demo", "description": "demo plugin"}\n', encoding="utf-8"
+    )
+    subprocess.run(["git", "init", "-q"], cwd=origin, check=True, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=origin, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
+        cwd=origin,
+        check=True,
+        capture_output=True,
+    )
+    monkeypatch.setenv("OM_HARNESS_PLUGINS_DIR", str(tmp_path / "plugins"))
+    monkeypatch.delenv("OM_HARNESS_SKILLS_DIR", raising=False)
+
+    from om_harness.plugins import install_plugin
+
+    install_plugin(str(origin))
+
+    harness = Harness(repo_root=_repo(tmp_path), env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id)
+
+    assert repl._slash_command("/plugins")
+    out = capsys.readouterr().out
+    assert "demo" in out
+    assert "demo-skill" in out
+    # Plugin skills are active in the harness too.
+    assert "demo:demo-skill" in repl.harness.skills
+
+
+def test_slash_skill_runs_turn_for_known_skill(
+    tmp_path: Any, home: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    repl, harness = _skills_repl(tmp_path, home, monkeypatch)
+    captured: dict[str, str] = {}
+
+    async def fake_chat_turn(session_id: str, text: str, **kwargs: Any) -> str:
+        captured["text"] = text
+        return "did the thing"
+
+    monkeypatch.setattr(harness, "chat_turn", fake_chat_turn)
+    assert repl._slash_command("/skill analyse auth flow")
+    assert "analyse" in captured["text"]
+    assert "auth flow" in captured["text"]
+
+
+def test_slash_skill_unknown_skill_is_handled(
+    tmp_path: Any, home: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    repl, _ = _skills_repl(tmp_path, home, monkeypatch)
+    assert repl._slash_command("/skill nope")
+    out = capsys.readouterr().out
+    assert "nope" in out
+    assert "analyse" in out  # hints at what is available

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
+from dataclasses import dataclass, field
 from typing import Any
 
 from rich.markup import escape
@@ -49,6 +50,14 @@ CONTEXT_BUDGET_TOKENS = 200_000  # gauge ceiling when no budget is configured
 # Tools whose completions trigger a real-time file-change display.
 _CHANGE_TOOLS = {"write_file", "edit_file"}
 
+# Tools that execute commands; completions always render a command block with
+# a collapsed output preview, regardless of verbosity (like file changes).
+_COMMAND_TOOLS = {"run_shell", "run_tests"}
+_COMMAND_HISTORY_MAX = 20  # commands kept for Alt+O / /output recall
+_COMMAND_PREVIEW_LINES = 3  # tail lines shown in the collapsed block
+_COMMAND_EXPAND_LINES = 300  # inline cap when Alt+O expands an output
+_OUTPUT_PAGE_LINES = 50  # /output pages instead of printing above this
+
 # Keybinding table: action -> candidate key groups. The first group whose
 # key names are all valid for this platform wins. Note: Ctrl+M is physically
 # the same key as Enter, so the model selector must never bind to it.
@@ -59,9 +68,37 @@ KEYBINDINGS: dict[str, tuple[tuple[str, ...], ...]] = {
     "thinking": (("c-t",),),
     "verbosity": (("c-o",),),
     "model_selector": (("escape", "m"), ("f4",)),
+    "command_output": (("escape", "o"), ("c-y",)),
     "help": (("c-g",),),
     "clear": (("c-l",),),
 }
+
+
+@dataclass
+class _TurnStream:
+    """Inline-stream state for one turn.
+
+    Tracks both text (for reply de-duplication) and whether a partial line is
+    currently open on the terminal — thinking deltas print with ``end=""`` and
+    must be closed before any block output or the next prompt overdraws them.
+    """
+
+    text: list[str] = field(default_factory=list)
+    line_open: bool = False
+    delta_count: int = 0
+
+    def joined(self) -> str:
+        return "".join(self.text)
+
+
+@dataclass
+class CommandRun:
+    """One executed command, kept so its output can be re-opened later."""
+
+    command: str
+    output: str
+    exit_code: int | None = None
+    failed: bool = False
 
 
 class ChatRepl:
@@ -81,6 +118,9 @@ class ChatRepl:
         self.total_usage = TokenUsage()
         self._last_ctrl_c = 0.0
         self._pending_paths: dict[str, str] = {}
+        self._pending_commands: dict[str, str] = {}
+        self._command_outputs: list[CommandRun] = []
+        self._output_cursor = 0  # Alt+O cycles backwards through commands
 
     # -- state ----------------------------------------------------------------
 
@@ -260,6 +300,10 @@ class ChatRepl:
         def _clear(event: Any) -> None:
             event.app.renderer.clear()
 
+        def _command_output(event: Any) -> None:
+            repl._cmd_output([])
+            event.app.invalidate()
+
         handlers: dict[str, Any] = {
             "submit": _submit,
             "newline": _newline,
@@ -267,6 +311,7 @@ class ChatRepl:
             "thinking": _thinking,
             "verbosity": _verbosity,
             "model_selector": _selector,
+            "command_output": _command_output,
             "help": _help,
             "clear": _clear,
         }
@@ -333,41 +378,67 @@ class ChatRepl:
         """One user turn: live-render events and stream the reply."""
         offset = len(self.harness.bus.history)
         rendered: set[str] = set()
-        streamed: list[str] = []
+        stream = _TurnStream()
+        self._output_cursor = len(self._command_outputs)
 
         async def _turn() -> str:
-            pump = asyncio.create_task(self._pump(offset_holder, rendered, streamed))
+            pump = asyncio.create_task(self._pump(offset_holder, rendered, stream))
             try:
                 return await self.harness.chat_turn(self.session_id, text)
             finally:
+                # Cancel, then let the pump finish its in-flight pass so
+                # deltas emitted in the final tick render in-stream instead
+                # of bursting after the turn.
                 pump.cancel()
+                try:
+                    await pump
+                except asyncio.CancelledError:
+                    task = asyncio.current_task()
+                    if task is not None and task.cancelling():
+                        raise  # the turn itself was cancelled, not just the pump
+                except Exception as exc:
+                    self._stream_warning(exc)
 
         offset_holder = [offset]
+        error: Exception | None = None
+        interrupted = False
+        reply: str | None = None
         try:
             reply = asyncio.run(_turn())
         except (KeyboardInterrupt, asyncio.CancelledError):
+            interrupted = True
+        except Exception as exc:
+            error = exc
+        finally:
+            # Render anything the pump missed, on EVERY exit path — the error
+            # and interrupt paths must not swallow late deltas or diffs.
             for event in self.harness.bus.history[offset_holder[0] :]:
                 if event.id not in rendered:
                     rendered.add(event.id)
-                    self._render_event(event)
-            self.renderer.console.print()
+                    try:
+                        self._render_event(event, stream)
+                    except Exception as exc:
+                        self._stream_warning(exc)
+            self._close_stream_line(stream)
+
+        if interrupted:
             self.renderer.line(DisplayLine(level=LineLevel.warn, icon="⏹", text="turn interrupted"))
             return
-        except Exception as exc:
-            self.renderer.error(f"turn failed: {exc}")
+        if error is not None:
+            self.renderer.error(f"turn failed: {error}")
             return
-        # Render anything the pump missed before it was cancelled.
-        for event in self.harness.bus.history[offset_holder[0] :]:
-            if event.id not in rendered:
-                rendered.add(event.id)
-                self._render_event(event, streamed)
-        streamed_text = "".join(streamed)
-        if streamed_text:
-            self.renderer.console.print()  # close the streamed line
-            if streamed_text != reply:
-                self.renderer.console.print(f"[green]om[/] {escape(reply)}")
-        else:
-            self.renderer.console.print(f"[green]om[/] {escape(reply)}")
+
+        streamed_text = stream.joined()
+        if not streamed_text or streamed_text != (reply or ""):
+            self.renderer.console.print(f"[green]om[/] {escape(reply or '')}")
+        if stream.delta_count == 0:
+            self.renderer.line(
+                DisplayLine(
+                    level=LineLevel.dim,
+                    icon="·",
+                    text="no live stream this turn — model streaming unavailable or thinking off",
+                )
+            )
 
         segment = self.harness.bus.history[offset:]
         activity = turn_activity(segment)
@@ -394,51 +465,99 @@ class ChatRepl:
             )
         )
 
+    def _stream_warning(self, exc: Exception) -> None:
+        """Report a live-stream failure without ending the turn."""
+        with contextlib.suppress(Exception):
+            self.renderer.line(
+                DisplayLine(
+                    level=LineLevel.warn,
+                    icon="⚠",
+                    text=f"live stream interrupted: {exc}",
+                )
+            )
+
+    def _close_stream_line(self, stream: _TurnStream | None) -> None:
+        """Terminate an open partial line (text/thinking printed with end="")."""
+        if stream is not None and stream.line_open:
+            self.renderer.console.print()
+            stream.line_open = False
+
+    def _flush_console(self) -> None:
+        """Flush partial (end="") writes to the terminal.
+
+        Rich only auto-flushes on newline; without this, deltas can sit in
+        the buffer and the stream appears to stall. Rich 15 dropped
+        ``Console.flush()``, so flush the underlying file.
+        """
+        with contextlib.suppress(Exception):
+            self.renderer.console.file.flush()
+
     async def _pump(
-        self, offset_holder: list[int], rendered: set[str], streamed: list[str]
+        self, offset_holder: list[int], rendered: set[str], stream: _TurnStream
     ) -> None:
         """Live-render new events while the turn runs (polling drain)."""
-        try:
-            while True:
-                history = self.harness.bus.history
-                new = history[offset_holder[0] :]
-                if new:
-                    offset_holder[0] += len(new)
-                    for event in new:
-                        if event.id not in rendered:
-                            rendered.add(event.id)
-                            self._render_event(event, streamed)
-                await asyncio.sleep(PUMP_INTERVAL_SECONDS)
-        except asyncio.CancelledError:
-            raise
+        while True:
+            history = self.harness.bus.history
+            new = history[offset_holder[0] :]
+            if new:
+                offset_holder[0] += len(new)
+                for event in new:
+                    if event.id in rendered:
+                        continue
+                    rendered.add(event.id)
+                    try:
+                        self._render_event(event, stream)
+                    except Exception as exc:
+                        # One bad event must never kill the live stream.
+                        self._stream_warning(exc)
+            await asyncio.sleep(PUMP_INTERVAL_SECONDS)
 
-    def _render_event(self, event: Event, streamed: list[str] | None = None) -> None:
-        # File changes made by the agent are always shown in real time,
+    def _render_event(self, event: Event, stream: _TurnStream | None = None) -> None:
+        # File changes and executed commands are always shown in real time,
         # regardless of verbosity.
         if event.type == EventType.TOOL_CALL_STARTED:
             tool = event.data.get("tool")
             arguments = event.data.get("arguments") or {}
             if tool in _CHANGE_TOOLS and isinstance(arguments.get("path"), str):
                 self._pending_paths[tool] = arguments["path"]
-        elif event.type == EventType.TOOL_CALL_COMPLETED:
+            if tool in _COMMAND_TOOLS and isinstance(arguments.get("command"), str):
+                self._pending_commands[tool] = arguments["command"]
+        elif event.type in (EventType.TOOL_CALL_COMPLETED, EventType.TOOL_CALL_FAILED):
             tool = event.data.get("tool") or ""
-            if tool in _CHANGE_TOOLS and event.data.get("ok", True):
+            if (
+                event.type == EventType.TOOL_CALL_COMPLETED
+                and tool in _CHANGE_TOOLS
+                and event.data.get("ok", True)
+            ):
                 path = event.data.get("path") or self._pending_paths.pop(tool, None)
+                self._close_stream_line(stream)
                 self._show_file_change(path)
                 return
             self._pending_paths.pop(tool, None)
+            if tool in _COMMAND_TOOLS:
+                self._close_stream_line(stream)
+                if self._show_command(event):
+                    return
         if event.type == EventType.MESSAGE_DELTA:
             kind = event.data.get("kind")
             delta = event.data.get("delta") or ""
             if kind == "text" and delta:
                 self.renderer.console.print(f"[green]{escape(delta)}[/]", end="")
-                if streamed is not None:
-                    streamed.append(delta)
+                self._flush_console()
+                if stream is not None:
+                    stream.text.append(delta)
+                    stream.line_open = True
+                    stream.delta_count += 1
             elif self.show_thinking and kind == "thinking" and delta:
                 self.renderer.console.print(f"[dim italic]{escape(delta)}[/]", end="")
+                self._flush_console()
+                if stream is not None:
+                    stream.line_open = True
+                    stream.delta_count += 1
             return
         display = event_to_display(event, self.verbosity)
         if display is not None:
+            self._close_stream_line(stream)
             self.renderer.line(display)
 
     # -- real-time file-change rendering --------------------------------------
@@ -499,6 +618,109 @@ class ChatRepl:
             return None
         return None
 
+    # -- real-time command rendering ------------------------------------------
+
+    def _show_command(self, event: Event) -> bool:
+        """Render an executed command with a collapsed output preview.
+
+        Returns True if a command block was rendered. Commands are shown in
+        every verbosity mode, like file changes.
+        """
+        data = event.data
+        tool = data.get("tool") or ""
+        failed = event.type == EventType.TOOL_CALL_FAILED
+        command = data.get("command")
+        if not isinstance(command, str) or not command:
+            command = self._pending_commands.pop(tool, None)
+            if not command:
+                return False
+        else:
+            self._pending_commands.pop(tool, None)
+        output = data.get("output")
+        output = output if isinstance(output, str) else ""
+        exit_code = data.get("exit_code")
+        exit_code = exit_code if isinstance(exit_code, int) else None
+
+        self._command_outputs.append(
+            CommandRun(command=command, output=output, exit_code=exit_code, failed=failed)
+        )
+        if len(self._command_outputs) > _COMMAND_HISTORY_MAX:
+            del self._command_outputs[:-_COMMAND_HISTORY_MAX]
+
+        console = self.renderer.console
+        if failed:
+            status = "[red]failed[/]"
+        elif exit_code is None:
+            status = ""
+        else:
+            status = f"[dim]exit {exit_code}[/]" if exit_code == 0 else f"[red]exit {exit_code}[/]"
+        head = f"[bold]⚙ ${escape(command)}[/]"
+        if status:
+            head += f"  {status}"
+        console.print(head)
+
+        if failed and data.get("error"):
+            console.print(f"[red]{escape(str(data['error']))}[/]")
+        lines = output.splitlines() if output else []
+        if lines:
+            for line in lines[-_COMMAND_PREVIEW_LINES:]:
+                console.print(f"[dim]│ {escape(line)}[/]")
+        else:
+            console.print("[dim]│ (no output)[/]")
+        hidden = max(0, len(lines) - _COMMAND_PREVIEW_LINES)
+        if hidden:
+            console.print(f"[dim]╵ ⋯ +{hidden} earlier lines — Alt+O output · /output to page[/]")
+        else:
+            console.print("[dim]╵ Alt+O output · /output to page[/]")
+        return True
+
+    def _print_command_output(self, run: CommandRun) -> None:
+        """Re-print a recorded command's output inline, capped."""
+        console = self.renderer.console
+        console.print(f"[bold]⚙ ${escape(run.command)}[/]")
+        lines = run.output.splitlines() if run.output else ["(no output)"]
+        for line in lines[:_COMMAND_EXPAND_LINES]:
+            console.print(f"[dim]│ {escape(line)}[/]")
+        if len(lines) > _COMMAND_EXPAND_LINES:
+            console.print(
+                f"[dim]╵ … +{len(lines) - _COMMAND_EXPAND_LINES} more lines — /output to page[/]"
+            )
+
+    def _cmd_output(self, args: list[str]) -> None:
+        """Alt+O handler and /output command: re-open executed command output.
+
+        With no args, expand the most recent command (repeated presses cycle
+        backwards); ``/output <n>`` shows that command, paging if long.
+        """
+        runs = self._command_outputs
+        if not runs:
+            self.renderer.info("no commands executed yet this session")
+            return
+        if not args:
+            if self._output_cursor <= 0:
+                self._output_cursor = len(runs)
+            run = runs[self._output_cursor - 1]
+            self._output_cursor -= 1
+            self._print_command_output(run)
+            return
+        try:
+            index = int(args[0])
+        except ValueError:
+            self.renderer.error("usage: /output [n]")
+            return
+        if not 1 <= index <= len(runs):
+            self.renderer.error(f"no command {index} — /output lists 1..{len(runs)}")
+            return
+        run = runs[index - 1]
+        lines = run.output.splitlines() if run.output else ["(no output)"]
+        if len(lines) > _OUTPUT_PAGE_LINES:
+            import pydoc
+
+            self.renderer.console.print(f"[bold]⚙ ${escape(run.command)}[/]")
+            pydoc.pager("\n".join(lines))
+        else:
+            self._print_command_output(run)
+
     # -- slash commands ------------------------------------------------------
 
     def _slash_command(self, text: str) -> bool:
@@ -545,8 +767,16 @@ class ChatRepl:
             self.renderer.info(f"verbosity: {self.verbosity.value}")
         elif command == "tools":
             self._cmd_tools()
+        elif command == "skills":
+            self._cmd_skills()
+        elif command == "skill":
+            self._cmd_skill(args)
+        elif command == "plugins":
+            self._cmd_plugins()
         elif command == "status":
             self._cmd_status()
+        elif command == "output":
+            self._cmd_output(args)
         else:
             self.renderer.error(f"unknown command /{command} — try /help (or send it as a message)")
             return False
@@ -564,11 +794,15 @@ class ChatRepl:
                     "config",
                     "providers",
                     "tools",
+                    "skills",
+                    "skill",
+                    "plugins",
                     "status",
                     "sessions",
                     "checkpoint",
                     "setup",
                     "verbose",
+                    "output",
                     "help",
                     "exit",
                 )
@@ -578,7 +812,8 @@ class ChatRepl:
             DisplayLine(
                 level=LineLevel.dim,
                 icon="·",
-                text="keys: ⇧Tab mode · alt+M model · ^T thinking · ^O verbose · ^G help",
+                text="keys: ⇧Tab mode · alt+M model · ^T thinking · ^O verbose"
+                " · ⌥O output · ^G help",
             )
         )
         self.renderer.line(
@@ -669,6 +904,62 @@ class ChatRepl:
                     text=f"{spec['name']} ({spec['permission']}): {spec['description']}",
                 )
             )
+
+    def _cmd_skills(self) -> None:
+        if not self.harness.skills:
+            self.renderer.info("no skills installed (~/.agents/skills or repo .agents/skills)")
+            return
+        for skill in self.harness.skills.values():
+            hint = f" [args: {skill.argument_hint}]" if skill.argument_hint else ""
+            self.renderer.line(
+                DisplayLine(
+                    level=LineLevel.info,
+                    icon="·",
+                    text=f"{skill.name} [{skill.source}]{hint}: {skill.description}",
+                )
+            )
+
+    def _cmd_plugins(self) -> None:
+        from om_harness.plugins import load_plugins
+
+        installed = load_plugins()
+        if not installed:
+            self.renderer.info(
+                "no plugins installed — try: om-harness install git:github.com/<owner>/<repo>"
+            )
+            return
+        for plugin in installed:
+            self.renderer.line(
+                DisplayLine(
+                    level=LineLevel.info,
+                    icon="·",
+                    text=f"{plugin.name} ({len(plugin.skills)} skills): {plugin.description}",
+                )
+            )
+            for skill in plugin.skills:
+                self.renderer.line(
+                    DisplayLine(
+                        level=LineLevel.dim, icon="·", text=f"{skill.name}: {skill.description}"
+                    )
+                )
+
+    def _cmd_skill(self, args: list[str]) -> None:
+        if not args:
+            self.renderer.error("usage: /skill <name> [args] — see /skills")
+            return
+        name = args[0]
+        if name not in self.harness.skills:
+            available = ", ".join(sorted(self.harness.skills)) or "(none)"
+            self.renderer.error(f"unknown skill {name!r} — available: {available}")
+            return
+        extra = " ".join(args[1:])
+        prompt = (
+            f"Load the skill {name!r} with the skill tool and follow its "
+            "instructions to handle this request."
+        )
+        if extra:
+            prompt += f" Arguments/context: {extra}"
+        self.run_turn(prompt)
 
     def _cmd_status(self) -> None:
         for key, value in self.harness.status().items():

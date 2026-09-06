@@ -17,6 +17,7 @@ from om_harness.context.budget import ContextLedger, ContextReport
 from om_harness.context.repo_index import RepoIndex
 from om_harness.models.session import Message, MessageRole
 from om_harness.models.task import TaskResult
+from om_harness.skills import Skill, render_skill_list
 
 # Role-scoped system prompts. Each is deliberately tiny: the model's own
 # knowledge does the heavy lifting; the prompt only sets role and boundaries.
@@ -91,9 +92,11 @@ class ContextAssembler:
         self,
         config: HarnessConfig,
         repo_index: RepoIndex | None = None,
+        skills: dict[str, Skill] | None = None,
     ) -> None:
         self.config = config
         self.repo_index = repo_index
+        self.skills: dict[str, Skill] = dict(skills or {})
         self._repo_context_cache: str | None = None
 
     def system_prompt(self, role: str) -> str:
@@ -101,7 +104,23 @@ class ContextAssembler:
         role_prompt = ROLE_PROMPTS.get(role)
         if role_prompt is None:
             role_prompt = ROLE_PROMPTS["chat"]
-        return f"{base}\n{role_prompt}"
+        prompt = f"{base}\n{role_prompt}"
+        skills_section = self._skills_section()
+        if skills_section:
+            prompt = f"{prompt}\n{skills_section}"
+        return prompt
+
+    def _skills_section(self) -> str:
+        """Tiny listing of available skills; empty when none are installed."""
+        if not self.skills:
+            return ""
+        listing = render_skill_list(self.skills)
+        return (
+            "Available skills (one per line, name: description):\n"
+            f"{listing}\n"
+            "When a task matches a skill, load its full instructions with the "
+            "`skill` tool before proceeding."
+        )
 
     def repo_context(self, max_files: int | None = None) -> str:
         if self._repo_context_cache is None and self.repo_index is not None:
