@@ -151,7 +151,8 @@ om Fixed add() in calc.py — tests pass.
 ### Slash commands
 
 `/model [name]` (no args: arrow-key selector) · `/thinking [level]` ·
-`/config` · `/config set <key> <value>` · `/providers` · `/tools` ·
+`/config` · `/config set <key> <value>` · `/timeout [agent|tool] <seconds|off>` ·
+`/providers` · `/tools` ·
 `/skills` · `/skill <name> [args]` · `/plugins` ·
 `/status` · `/sessions` · `/checkpoint [label]` · `/setup` · `/verbose` ·
 `/help` · `/exit`.
@@ -160,6 +161,12 @@ om Fixed add() in calc.py — tests pass.
 custom OpenAI-compatible endpoint to `~/.om-harness/config/models.json`),
 model selection, approval mode, verbosity, and thinking level — everything
 persists to `~/.om-harness/`.
+
+`/timeout` shows the current agent (whole-turn) and tool (per-call)
+timeouts; `/timeout agent 300`, `/timeout tool off`, or `/timeout off`
+(disable both) change them live and persist to
+`~/.om-harness/config/config.toml`. `/config set agent_timeout|tool_timeout
+<seconds|off>` does the same.
 
 ### Skills and plugins
 

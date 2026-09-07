@@ -84,8 +84,8 @@ max_repo_index_files = 500
 max_file_read_chars = 40000
 
 max_concurrency = 4                     # parallel agent tasks
-agent_timeout_seconds = 600.0
-tool_timeout_seconds = 60.0
+agent_timeout_seconds = 600.0           # whole-turn timeout; "off" or 0 disables
+tool_timeout_seconds = 60.0             # per-tool-call timeout; "off" or 0 disables
 verbosity = "compact"                   # compact | verbose | debug
 ```
 
@@ -102,8 +102,8 @@ verbosity = "compact"                   # compact | verbose | debug
 | `OM_HARNESS_MAX_CONCURRENCY` | parallel agent tasks | `2` |
 | `OM_HARNESS_VERBOSITY` | `compact` / `verbose` / `debug` | `verbose` |
 | `OM_HARNESS_MAX_REQUESTS` | per-run request ceiling | `20` |
-| `OM_HARNESS_AGENT_TIMEOUT_SECONDS` | per-task agent timeout | `300` |
-| `OM_HARNESS_TOOL_TIMEOUT_SECONDS` | per-tool-call timeout | `30` |
+| `OM_HARNESS_AGENT_TIMEOUT_SECONDS` | per-task agent timeout (`off` disables) | `300` |
+| `OM_HARNESS_TOOL_TIMEOUT_SECONDS` | per-tool-call timeout (`off` disables) | `30` |
 
 ### API key handling rules
 
