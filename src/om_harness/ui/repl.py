@@ -538,7 +538,7 @@ class ChatRepl:
         try:
             from prompt_toolkit.application import Application
             from prompt_toolkit.key_binding import KeyBindings
-            from prompt_toolkit.layout import Layout, Window
+            from prompt_toolkit.layout import FormattedTextControl, HSplit, Layout, Window
             from prompt_toolkit.patch_stdout import patch_stdout
         except Exception:  # pragma: no cover - prompt_toolkit is a hard dep
             return await turn_task
@@ -550,12 +550,42 @@ class ChatRepl:
             turn_task.cancel()
             event.app.exit()
 
-        app: Any = Application(
-            layout=Layout(Window(char=" ", height=0)),
-            bottom_toolbar=self._status_bar,
-            key_bindings=kb,
-            full_screen=False,
-        )
+        # The toolbar as layout content (Application has no bottom_toolbar
+        # kwarg — that is a PromptSession convenience). refresh_interval
+        # keeps the context gauge live during the turn.
+        import os
+
+        def _build_app() -> Any:
+            toolbar_window = Window(
+                FormattedTextControl(self._status_bar, show_cursor=False),
+                style="class:bottom-toolbar",
+                height=1,
+            )
+            return Application(
+                layout=Layout(HSplit([toolbar_window])),
+                key_bindings=kb,
+                full_screen=False,
+                refresh_interval=1,
+                erase_when_done=True,
+            )
+
+        try:
+            # Construction itself needs a usable console output; on Windows
+            # a stray TERM (Git Bash) breaks detection, so retry once with
+            # it cleared — same trick as _make_prompt_session. Anything else
+            # falls back to the plain await below.
+            app = _build_app()
+        except Exception:
+            saved_term = os.environ.get("TERM")
+            try:
+                if saved_term:
+                    os.environ.pop("TERM")
+                app = _build_app()
+            except Exception:
+                return await turn_task  # pinning unavailable this turn
+            finally:
+                if saved_term:
+                    os.environ["TERM"] = saved_term
         try:
             app_task = asyncio.create_task(app.run_async())
         except Exception:
@@ -582,6 +612,12 @@ class ChatRepl:
             if not app_task.done():
                 with contextlib.suppress(Exception):
                     app.exit()
+                    app.invalidate()  # wake the loop so it processes the exit
+                # Let the app finish its done-state render (erase_when_done
+                # removes the toolbar row); hard-cancel only if it hangs.
+                with contextlib.suppress(asyncio.TimeoutError, Exception):
+                    await asyncio.wait_for(asyncio.shield(app_task), timeout=2.0)
+            if not app_task.done():
                 app_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await app_task

@@ -493,22 +493,37 @@ def test_pinned_bar_runs_toolbar_during_turn(
     """With pinning active, the toolbar callable drives a minimal app while
     the turn runs, and the turn result still comes back."""
     import prompt_toolkit.application as ptk_app_mod
+    import prompt_toolkit.layout as ptk_layout
     import prompt_toolkit.patch_stdout as ptk_ps_mod
 
     created: list[Any] = []
+    controls: list[Any] = []
+
+    class FakeControl:
+        """Stands in for FormattedTextControl; captures the text callable."""
+
+        def __init__(self, text: Any = None, **kwargs: Any) -> None:
+            self.text = text
+            controls.append(self)
+
+        def reset(self) -> None:  # Window.__init__ calls this
+            pass
 
     class FakeApp:
         def __init__(self, *args: Any, **kwargs: Any) -> None:
-            self.bottom_toolbar = kwargs.get("bottom_toolbar")
             self.exit_called = False
+            self._done = asyncio.Event()
             created.append(self)
 
         async def run_async(self) -> None:
-            self.toolbar_result = self.bottom_toolbar()
-            await asyncio.Event().wait()  # runs until the turn ends it
+            self.toolbar_result = controls[0].text()
+            await self._done.wait()
 
         def exit(self) -> None:
             self.exit_called = True
+
+        def invalidate(self) -> None:
+            self._done.set()
 
     class FakePatchStdout:
         def __enter__(self) -> None:
@@ -521,6 +536,7 @@ def test_pinned_bar_runs_toolbar_during_turn(
     session = harness.sessions.create(repo_root=str(tmp_path))
     repl = ChatRepl(harness, session_id=session.session_id)
     monkeypatch.setattr(repl, "_stdout_is_tty", staticmethod(lambda: True))
+    monkeypatch.setattr(ptk_layout, "FormattedTextControl", FakeControl)
     monkeypatch.setattr(ptk_app_mod, "Application", FakeApp)
     # patch_stdout needs a real console buffer; stub it so the pin path runs.
     monkeypatch.setattr(ptk_ps_mod, "patch_stdout", lambda raw=True: FakePatchStdout())
@@ -542,12 +558,16 @@ def test_pinned_bar_propagates_turn_cancellation(tmp_path: Any, monkeypatch: Any
     class FakeApp:
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             self.exit_called = False
+            self._done = asyncio.Event()
 
         async def run_async(self) -> None:
-            await asyncio.Event().wait()
+            await self._done.wait()
 
         def exit(self) -> None:
             self.exit_called = True
+
+        def invalidate(self) -> None:
+            self._done.set()
 
     harness = Harness(repo_root=_repo(tmp_path), env={})
     session = harness.sessions.create(repo_root=str(tmp_path))
