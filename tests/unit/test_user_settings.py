@@ -79,3 +79,35 @@ def test_persisted_updates_merge_not_replace(harness: Any) -> None:
     reloaded = load_config(harness.repo_root, env={})
     assert reloaded.routing.default_model == "openai:gpt-4o"
     assert reloaded.verbosity == "debug"
+
+
+def test_set_timeouts_updates_config_and_ctx(harness: Any, home: Any) -> None:
+    apply_config_update(harness, "agent_timeout", "300")
+    apply_config_update(harness, "tool_timeout", "120")
+    assert harness.config.agent_timeout_seconds == 300.0
+    assert harness.config.tool_timeout_seconds == 120.0
+    # Tools share one ToolContext; it must see the new timeout immediately.
+    assert harness.tool_ctx.tool_timeout_seconds == 120.0
+    reloaded = load_config(harness.repo_root, env={})
+    assert reloaded.agent_timeout_seconds == 300.0
+    assert reloaded.tool_timeout_seconds == 120.0
+
+
+def test_disable_timeouts_round_trips_off(harness: Any, home: Any) -> None:
+    apply_config_update(harness, "agent_timeout", "off")
+    apply_config_update(harness, "tool_timeout", "off")
+    assert harness.config.agent_timeout_seconds is None
+    assert harness.config.tool_timeout_seconds is None
+    assert harness.tool_ctx.tool_timeout_seconds is None
+    # TOML has no null: "off" persists and must load back as None.
+    reloaded = load_config(harness.repo_root, env={})
+    assert reloaded.agent_timeout_seconds is None
+    assert reloaded.tool_timeout_seconds is None
+
+
+def test_invalid_timeout_value_rejected(harness: Any) -> None:
+    with pytest.raises(SettingsError):
+        apply_config_update(harness, "agent_timeout", "banana")
+    with pytest.raises(SettingsError):
+        apply_config_update(harness, "tool_timeout", "-5")
+    assert harness.config.agent_timeout_seconds == 600.0

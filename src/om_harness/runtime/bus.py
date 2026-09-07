@@ -58,7 +58,7 @@ class EventBus:
     def __init__(
         self,
         redactor: SecretRedactor | None = None,
-        history_size: int = 1000,
+        history_size: int = 10_000,
         max_queue: int = 10_000,
     ) -> None:
         self._redactor = redactor
@@ -66,6 +66,7 @@ class EventBus:
         self._max_queue = max_queue
         self._subscribers: list[asyncio.Queue[Event | None]] = []
         self._closed = False
+        self._seq = 0
 
     def subscribe(self) -> EventReader:
         queue: asyncio.Queue[Event | None] = asyncio.Queue(maxsize=self._max_queue)
@@ -76,10 +77,25 @@ class EventBus:
     def history(self) -> list[Event]:
         return list(self._history)
 
+    @property
+    def cursor(self) -> int:
+        """Sequence number of the most recently published event (0 if none)."""
+        return self._seq
+
+    def since(self, cursor: int) -> list[Event]:
+        """Events published after ``cursor``.
+
+        Cursor-based, so draining stays correct once the bounded history
+        starts evicting old entries (positional slicing would silently
+        return nothing and freeze live consumers).
+        """
+        return [event for event in self._history if event.seq > cursor]
+
     async def publish(self, event: Event) -> None:
         if self._closed:
             return
-        event = self._redact(event)
+        self._seq += 1
+        event = self._redact(event).model_copy(update={"seq": self._seq})
         self._history.append(event)
         for queue in list(self._subscribers):
             self._enqueue(queue, event)
@@ -88,7 +104,8 @@ class EventBus:
         """Synchronous path for non-async callers (CLI one-shots, tests)."""
         if self._closed:
             return
-        event = self._redact(event)
+        self._seq += 1
+        event = self._redact(event).model_copy(update={"seq": self._seq})
         self._history.append(event)
         for queue in list(self._subscribers):
             self._enqueue(queue, event)

@@ -138,10 +138,10 @@ def _build_harness(
     return harness
 
 
-def _print_events(harness, offset: int, renderer, verbosity) -> None:  # type: ignore[no-untyped-def]
+def _print_events(harness, cursor: int, renderer, verbosity) -> None:  # type: ignore[no-untyped-def]
     from om_harness.ui.components import event_to_display
 
-    for event in harness.bus.history[offset:]:
+    for event in harness.bus.since(cursor):
         display = event_to_display(event, verbosity)
         if display is not None:
             renderer.line(display)
@@ -186,7 +186,7 @@ def run(
 
     harness = _build_harness(repo, json_mode, verbose, debug, model, approval_policy)
     renderer = harness.renderer
-    offset = len(harness.bus.history)
+    cursor = harness.bus.cursor
     try:
         outcome = asyncio.run(
             harness.run(
@@ -208,7 +208,7 @@ def run(
     if json_mode:
         typer.echo(_json_payload(outcome))
     else:
-        _print_events(harness, offset, renderer, harness.config.verbosity)
+        _print_events(harness, cursor, renderer, harness.config.verbosity)
         renderer.summary(outcome_to_summary(outcome))
     if outcome.status.value != "completed":
         raise typer.Exit(1)
@@ -269,12 +269,12 @@ def agent(
             role=role,
         )
     ]
-    offset = len(harness.bus.history)
+    cursor = harness.bus.cursor
     outcome = asyncio.run(harness.run(instruction, tasks=tasks, model_override=model))
     if json_mode:
         typer.echo(_json_payload(outcome))
     else:
-        _print_events(harness, offset, renderer, harness.config.verbosity)
+        _print_events(harness, cursor, renderer, harness.config.verbosity)
         renderer.summary(outcome_to_summary(outcome))
     if outcome.status.value != "completed":
         raise typer.Exit(1)

@@ -11,7 +11,7 @@ import json
 import tomllib
 from typing import Any
 
-from om_harness.config.loader import ApprovalPolicy, ThinkingLevel, Verbosity
+from om_harness.config.loader import ApprovalPolicy, ThinkingLevel, Verbosity, parse_timeout
 from om_harness.config.paths import user_config_file, user_models_json
 from om_harness.models.task import TaskType
 from om_harness.providers.registry import ProviderError
@@ -90,6 +90,28 @@ def apply_config_update(harness: Any, key: str, value: str) -> str:
         updates = {"budget": {"max_requests": parsed}}
         message = f"budget.max_requests set to {parsed}"
 
+    elif key in ("agent_timeout", "tool_timeout"):
+        try:
+            seconds = parse_timeout(value)
+        except (ValueError, TypeError) as exc:
+            raise SettingsError(
+                f"invalid {key} {value!r}; use seconds or 'off' to disable"
+            ) from exc
+        attr = f"{key}_seconds"
+        setattr(config, attr, seconds)
+        if key == "tool_timeout":
+            # Tools share one live ToolContext; sync it so the change takes
+            # effect without rebuilding the registry.
+            tool_ctx = getattr(harness, "tool_ctx", None)
+            if tool_ctx is not None:
+                tool_ctx.tool_timeout_seconds = seconds
+        updates = {attr: "off" if seconds is None else seconds}
+        message = (
+            f"{key} timeout disabled (no timeout)"
+            if seconds is None
+            else f"{key} timeout set to {seconds:g}s"
+        )
+
     elif key.startswith("task_model."):
         task_type_raw = key.partition(".")[2]
         try:
@@ -106,7 +128,10 @@ def apply_config_update(harness: Any, key: str, value: str) -> str:
         message = f"task_model.{task_type.value} set to {value}"
 
     else:
-        known = "model, approval, verbosity, max_concurrency, max_requests, task_model.<type>"
+        known = (
+            "model, approval, verbosity, max_concurrency, max_requests, "
+            "agent_timeout, tool_timeout, task_model.<type>"
+        )
         raise SettingsError(f"unknown config key {key!r}; configurable: {known}")
 
     persist_updates(updates)

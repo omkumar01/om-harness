@@ -140,14 +140,16 @@ class Harness:
         self.skills = self._resolve_skills()
         self.assembler = ContextAssembler(self.config, self.repo_index, skills=self.skills)
 
-        tool_ctx = ToolContext(
+        # Shared live reference: /config set tool_timeout mutates this in
+        # place so already-built tools see the new timeout immediately.
+        self.tool_ctx = ToolContext(
             repo_root=self.repo_root,
             tool_timeout_seconds=self.config.tool_timeout_seconds,
             max_file_read_chars=self.config.context.max_file_read_chars,
         )
-        self.registry = build_default_registry(tool_ctx)
+        self.registry = build_default_registry(self.tool_ctx)
         if self.skills:
-            self.registry.register(SkillTool(tool_ctx, skills=self.skills))
+            self.registry.register(SkillTool(self.tool_ctx, skills=self.skills))
         self.approval = ApprovalEngine(
             self.config.approval, interactive=interactive, confirmer=confirmer
         )
@@ -215,9 +217,10 @@ class Harness:
     ) -> RunOutcome:
         """Execute one goal end-to-end: plan, coordinate, persist, checkpoint."""
         session = self._resolve_session(session_id=session_id, resume=resume)
-        # Events are persisted after the run from the bus history (bounded,
-        # deterministic) — no pump race with cancellation.
-        event_offset = len(self.bus.history)
+        # Events are persisted after the run from the bus (bounded,
+        # deterministic) — no pump race with cancellation. Seq cursor, not a
+        # positional offset: history evicts once it overflows.
+        event_cursor = self.bus.cursor
         run = self.sessions.start_run(
             session,
             goal=goal,
@@ -293,7 +296,7 @@ class Harness:
                 completed_task_ids=[r.task_id for r in results if r.status == TaskStatus.completed],
             )
 
-        for event in self.bus.history[event_offset:]:
+        for event in self.bus.since(event_cursor):
             if event.session_id == session.session_id:
                 self.store.append_event(event)
 

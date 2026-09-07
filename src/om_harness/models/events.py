@@ -76,6 +76,9 @@ class Event(BaseModel):
     """One observable runtime occurrence. Small, flat, and JSON-friendly."""
 
     id: str = Field(default_factory=lambda: uuid.uuid4().hex)
+    # Monotonic publish order, stamped by the EventBus. Consumers use it as a
+    # cursor (bus.since) so draining survives bounded-history eviction.
+    seq: int = 0
     type: EventType
     ts: datetime = Field(default_factory=_utcnow)
     session_id: str | None = None

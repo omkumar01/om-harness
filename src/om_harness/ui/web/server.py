@@ -70,7 +70,7 @@ def create_app(repo_root: Path, harness: Harness | None = None) -> FastAPI:
         else:
             created = harness.sessions.create(repo_root=str(harness.repo_root))
             session_id = created.session_id
-        offset = len(harness.bus.history)
+        cursor = harness.bus.cursor
         try:
             reply = await harness.chat_turn(
                 session_id, request.message, model_override=request.model
@@ -78,7 +78,7 @@ def create_app(repo_root: Path, harness: Harness | None = None) -> FastAPI:
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         events = []
-        for e in harness.bus.history[offset:]:
+        for e in harness.bus.since(cursor):
             display = event_to_display(e, Verbosity.verbose)
             if display is not None:
                 events.append(display.model_dump(mode="json"))

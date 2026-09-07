@@ -99,6 +99,14 @@ def test_missing_repo_root_is_fine(tmp_path: Any) -> None:
     assert config.budget == HarnessConfig().budget
 
 
+def test_timeout_fields_accept_off_and_zero() -> None:
+    assert HarnessConfig(agent_timeout_seconds="off").agent_timeout_seconds is None
+    assert HarnessConfig(tool_timeout_seconds=0).tool_timeout_seconds is None
+    assert HarnessConfig(agent_timeout_seconds="90").agent_timeout_seconds == 90.0
+    with pytest.raises(Exception):
+        HarnessConfig(agent_timeout_seconds=-1)
+
+
 def test_redactor_replaces_secret_values() -> None:
     redactor = SecretRedactor(["super-secret-value"])
     text = "config uses super-secret-value inside"

@@ -26,14 +26,15 @@ flowchart TD
         RUN["runtime/<br/>runner · agent · session · store · bus"]
         CTX["context/<br/>assembler · repo_index · budget"]
         PROV["providers/<br/>registry · router · mock"]
-        TOOLS["tools/<br/>files · shell · git · testing · approval"]
+        TOOLS["tools/<br/>files · shell · git · testing · skill · approval"]
+        SKP["skills/ + plugins/<br/>discovery · git install"]
     end
     subgraph core["Pure contracts"]
         MODELS["models/ (Pydantic)"]
         CFG["config/ (loader · secrets)"]
     end
     outer --> H
-    H --> ORCH & RUN & CTX & PROV & TOOLS
+    H --> ORCH & RUN & CTX & PROV & TOOLS & SKP
     ORCH --> RUN
     RUN --> TOOLS
     RUN --> PROV
@@ -59,7 +60,7 @@ Dependency rules:
 | `models/session.py` | `Session`, `Message`, `RunRecord`, `Checkpoint` |
 | `config/loader.py` | TOML + env loading, strict validation (`ConfigError` at startup) |
 | `config/secrets.py` | `SecretRedactor`: value- and key-based credential scrubbing |
-| `runtime/bus.py` | Async pub/sub `EventBus`; publish-time redaction; bounded history |
+| `runtime/bus.py` | Async pub/sub `EventBus`; publish-time redaction; bounded history drained via monotonic `seq` cursors (`cursor` / `since`) |
 | `runtime/store.py` | `LocalStore`: atomic JSON/JSONL persistence under `.om-harness/` |
 | `runtime/session.py` | `SessionManager`: sessions, messages, runs, checkpoints |
 | `runtime/agent.py` | `AgentFactory`: registry tools → PydanticAI `Agent` (the one bridge) |
@@ -70,9 +71,12 @@ Dependency rules:
 | `context/repo_index.py` | Cached, bounded repo file map |
 | `context/budget.py` | Token estimation + per-component `ContextLedger` |
 | `context/assembler.py` | Role prompts, history trimming/summarization, `ContextReport` |
+| `skills/` | `SKILL.md` discovery (frontmatter parsing) + on-demand body loading |
+| `plugins/` | Git-installable plugins: source parsing, clone/update/uninstall, provenance |
 | `tools/base.py` | `Permission`, `ToolResult`, `ToolContext`, path confinement |
 | `tools/approval.py` | `ApprovalEngine`: policy → decision, async confirmer |
 | `tools/registry.py` | `ToolRegistry` + `GuardedToolExecutor` (approval + events) |
+| `tools/skill.py` | `SkillTool`: loads a registered skill's full instructions on demand |
 | `orchestration/planner.py` | Strategy choice + plan construction (smallest plans first) |
 | `orchestration/coordinator.py` | Topological waves, semaphore, retries, timeouts, skips |
 | `harness.py` | Composition root: `run`, `chat_turn`, `status`, `doctor`, `init_repo` |
@@ -178,6 +182,42 @@ Properties (all proven in `tests/unit/test_orchestration.py`):
 5. **Token ledger**: every component's estimated size (≈ chars/4) is
    recorded; `ContextReport` itemizes it. This is the "why did a run use
    its context" answer.
+6. **Available skills**: when skills are discovered, the system prompt
+   gains one section — a one-line `name: description` listing plus an
+   instruction to load a matching skill through the `skill` tool. The full
+   SKILL.md body is *not* sent up front (progressive disclosure, see
+   `skills/` below); with no skills installed the prompt is unchanged.
+
+## Skills and plugins
+
+Skills are small markdown instruction packs — a directory with a
+`SKILL.md` carrying a tiny frontmatter (`name`, `description`, optional
+`argument-hint`). Discovery is deliberately cheap (frontmatter only) and
+reads from, in override order (later wins on name collision):
+
+| Source | Location | Label |
+|---|---|---|
+| plugins | skills shipped inside installed plugins | `plugin:<name>` |
+| user | `~/.agents/skills` (`OM_HARNESS_SKILLS_DIR` override) | `user` |
+| config | `[skills].extra_dirs` | `extra` |
+| repo | `<repo>/.agents/skills` | `repo` |
+
+`Harness.__init__` resolves this into `harness.skills` and registers one
+read-only `SkillTool` when the set is non-empty. Namespacing: every plugin
+skill is also registered as `<plugin>:<skill>`; plain names are filled
+only when still free, so user/repo skills always win collisions. The
+`skill` tool resolves names exclusively against this registry — it has no
+path argument, so reading skill files from outside the repo root (a
+deliberate exemption from path confinement) cannot be turned into an
+arbitrary read. `[skills] enabled = false` disables discovery entirely.
+
+Plugins are git repositories cloned (shallow) into `~/.om-harness/plugins`
+(`OM_HARNESS_PLUGINS_DIR` override) by `om-harness install`, with an
+optional `plugin.json` manifest and a `.om-harness-plugin.json`
+provenance record (source spec + commit). Reinstalling updates via
+`git pull --ff-only`; `plugins` lists and `uninstall` removes. A plugin
+contributes its skills to the registry above at the next harness start;
+no other harness code path is plugin-aware.
 
 ## Provider integration model
 
@@ -205,7 +245,7 @@ Every tool declares one of three permission levels:
 
 | Level | Tools | Behavior |
 |---|---|---|
-| `read_only` | list/read/search files, git status/diff/log/show, repo info | always allowed |
+| `read_only` | list/read/search files, git status/diff/log/show, repo info, skill | always allowed |
 | `mutating` | write/edit file, run_shell, run_tests, git add/commit | gated by policy |
 | `destructive` | git restore (discards work) | gated by policy, never auto-approved |
 
@@ -224,7 +264,10 @@ Shell execution is deliberately constrained: argv-list execution with
 `shell=False`, rejection of shell metacharacters and catastrophic command
 patterns, hard timeouts, output caps, and a scrubbed environment (no
 credential-looking variables). All file tools resolve paths strictly inside
-the repository root.
+the repository root. The one exemption is the `skill` tool, which reads
+skill files from user-level directories outside the repo — safe because
+its only argument is a name resolved against the discovery registry, never
+a path.
 
 ## State / checkpoint model
 
@@ -240,9 +283,10 @@ the repository root.
 - **Checkpoints** store compact state — plan, task results, completed ids,
   summary, next hint — *not* transcripts. Resuming rebuilds scoped context
   from the checkpoint plus a fresh repo index.
-- **Events** are appended from the bus history after each run
-  (deterministic, no async race). A torn final line after a crash is
-  tolerated on read.
+- **Events** are appended from the bus after each run via a seq-cursor
+  window (`bus.since(cursor)` — correct even when the bounded history has
+  evicted entries; deterministic, no async race). A torn final line after a
+  crash is tolerated on read.
 - **Secrets**: the redactor runs at publish time; nothing credential-shaped
   should reach the store, and a test scans the entire state directory to
   prove it.
@@ -259,6 +303,23 @@ Both clients consume the same two artifacts:
 clients. The terminal renderer maps them to rich markup; the web `/api/chat`
 endpoint returns them as JSON and `/api/events/{id}` streams them via SSE.
 The web client is a reference: no business logic, no build step, one page.
+
+The interactive REPL streams live on top of the same artifacts: a pump task
+polls `bus.since(cursor)` every 50 ms and renders thinking/text deltas,
+file-change diffs, and executed commands as they happen (deduplicated by
+event id), with an end-of-turn sweep that renders anything the pump missed
+on every exit path. Draining is by monotonic `seq` cursor, never by
+positional offset into the bounded history — positional slicing goes
+permanently silent once the deque starts evicting (the live view would
+freeze mid-turn while the agent continues; see design Tradeoff 12).
+
+Slash commands are UI-only dispatch (no agent round-trip) backed by
+`apply_config_update`, which mutates the live config and persists to
+`~/.om-harness/config/config.toml`. `/timeout` shows or sets the agent and
+tool timeouts; `/timeout off` (or `/config set agent_timeout|tool_timeout
+off`) disables them — `None` in the config, which `asyncio.timeout` and
+`wait_for` treat as "no timeout". Tool timeouts propagate immediately
+through the shared live `ToolContext`.
 
 ## Testing strategy
 
@@ -283,6 +344,9 @@ The web client is a reference: no business logic, no build step, one page.
   automatically.
 - **New tool**: subclass `BaseTool`, define an `Args` model, register it in
   `tools.build_default_registry`. Permissions and eventing are inherited.
+- **New skill source**: add a `(dir, label)` pair to `Harness._resolve_skills`
+  (or install a plugin — `plugins/` already feeds its skills there).
+  Frontmatter rules live in `skills.parse_skill_md`.
 - **New strategy**: add a `StrategyKind`, a planner rule, and (if needed) a
   coordinator pattern; strategies are data (plans), not code paths, wherever
   possible.

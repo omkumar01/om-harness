@@ -376,13 +376,15 @@ class ChatRepl:
 
     def run_turn(self, text: str) -> None:
         """One user turn: live-render events and stream the reply."""
-        offset = len(self.harness.bus.history)
+        # Seq cursor into the bus (not a positional offset): history is a
+        # bounded deque, so positional slicing goes dead once it evicts.
+        cursor = self.harness.bus.cursor
         rendered: set[str] = set()
         stream = _TurnStream()
         self._output_cursor = len(self._command_outputs)
 
         async def _turn() -> str:
-            pump = asyncio.create_task(self._pump(offset_holder, rendered, stream))
+            pump = asyncio.create_task(self._pump(cursor_holder, rendered, stream))
             try:
                 return await self.harness.chat_turn(self.session_id, text)
             finally:
@@ -399,7 +401,7 @@ class ChatRepl:
                 except Exception as exc:
                     self._stream_warning(exc)
 
-        offset_holder = [offset]
+        cursor_holder = [cursor]
         error: Exception | None = None
         interrupted = False
         reply: str | None = None
@@ -412,7 +414,7 @@ class ChatRepl:
         finally:
             # Render anything the pump missed, on EVERY exit path — the error
             # and interrupt paths must not swallow late deltas or diffs.
-            for event in self.harness.bus.history[offset_holder[0] :]:
+            for event in self.harness.bus.since(cursor_holder[0]):
                 if event.id not in rendered:
                     rendered.add(event.id)
                     try:
@@ -440,7 +442,7 @@ class ChatRepl:
                 )
             )
 
-        segment = self.harness.bus.history[offset:]
+        segment = self.harness.bus.since(cursor)
         activity = turn_activity(segment)
         self.total_usage = self.total_usage.add(
             TokenUsage(input_tokens=activity.input_tokens, output_tokens=activity.output_tokens)
@@ -493,14 +495,13 @@ class ChatRepl:
             self.renderer.console.file.flush()
 
     async def _pump(
-        self, offset_holder: list[int], rendered: set[str], stream: _TurnStream
+        self, cursor_holder: list[int], rendered: set[str], stream: _TurnStream
     ) -> None:
         """Live-render new events while the turn runs (polling drain)."""
         while True:
-            history = self.harness.bus.history
-            new = history[offset_holder[0] :]
+            new = self.harness.bus.since(cursor_holder[0])
             if new:
-                offset_holder[0] += len(new)
+                cursor_holder[0] = new[-1].seq
                 for event in new:
                     if event.id in rendered:
                         continue
@@ -754,6 +755,8 @@ class ChatRepl:
             self.renderer.info(f"approval mode: {mode_glyph(self.mode)}")
         elif command == "config":
             self._cmd_config(args)
+        elif command == "timeout":
+            self._cmd_timeout(args)
         elif command == "providers":
             self._cmd_providers()
         elif command == "checkpoint":
@@ -792,6 +795,7 @@ class ChatRepl:
                     "thinking",
                     "mode",
                     "config",
+                    "timeout",
                     "providers",
                     "tools",
                     "skills",
@@ -821,7 +825,8 @@ class ChatRepl:
                 level=LineLevel.dim,
                 icon="·",
                 text="/config set keys: model, thinking, approval, verbosity, "
-                "max_concurrency, max_requests, task_model.<type>",
+                "max_concurrency, max_requests, agent_timeout, tool_timeout, "
+                "task_model.<type>",
             )
         )
 
@@ -884,6 +889,32 @@ class ChatRepl:
             self.renderer.info(f"{message} · saved to ~/.om-harness/config/config.toml")
             return
         self.renderer.error("usage: /config  or  /config set <key> <value>")
+
+    def _cmd_timeout(self, args: list[str]) -> None:
+        def _fmt(seconds: float | None) -> str:
+            return "off" if seconds is None else f"{seconds:g}s"
+
+        if not args:
+            config = self.harness.config
+            self.renderer.info(
+                f"agent timeout: {_fmt(config.agent_timeout_seconds)} · "
+                f"tool timeout: {_fmt(config.tool_timeout_seconds)} "
+                "(/timeout agent|tool <seconds|off>, or /timeout off to disable both)"
+            )
+            return
+        if args[0].lower() == "off" and len(args) == 1:
+            keys = ("agent_timeout", "tool_timeout")
+        elif args[0].lower() in ("agent", "tool") and len(args) == 2:
+            keys = (f"{args[0].lower()}_timeout",)
+        else:
+            self.renderer.error("usage: /timeout  |  /timeout off  |  /timeout agent|tool <seconds|off>")
+            return
+        for key in keys:
+            try:
+                self.renderer.info(apply_config_update(self.harness, key, args[-1]))
+            except SettingsError as exc:
+                self.renderer.error(str(exc))
+                return
 
     def _cmd_providers(self) -> None:
         for info in self.harness.provider_registry.available_providers():

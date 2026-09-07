@@ -27,6 +27,7 @@ COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("thinking", "Show or set the thinking level", "[off|low|medium|high]"),
     SlashCommand("mode", "Cycle approval mode (ask / auto / deny)"),
     SlashCommand("config", "Show or change configuration", "[set <key> <value>]"),
+    SlashCommand("timeout", "Show or set timeouts (agent turn / tool call)", "[agent|tool] <seconds|off>"),
     SlashCommand("providers", "List providers and availability"),
     SlashCommand("tools", "List available tools and permissions"),
     SlashCommand("skills", "List available skills"),
@@ -109,8 +110,10 @@ def args_hint_for(text: str, model_names: list[str]) -> str | None:
     if command.name == "config":
         return (
             base + "  keys: model, thinking, approval, verbosity, max_concurrency, "
-            "max_requests, task_model.<type>"
+            "max_requests, agent_timeout, tool_timeout, task_model.<type>"
         )
+    if command.name == "timeout":
+        return base + "  · off disables the timeout"
     if command.name == "thinking":
         return base + "  · Tab to complete"
     return base
@@ -159,6 +162,12 @@ class SlashCompleter(Completer):
             candidates = [(name, label) for name, label in self._model_options()]
         elif command.name == "thinking":
             candidates = [(lv.value, lv.value) for lv in ThinkingLevel]
+        elif command.name == "timeout":
+            candidates = [
+                ("agent", "whole-turn timeout"),
+                ("tool", "per-tool-call timeout"),
+                ("off", "disable timeouts"),
+            ]
         elif command.name == "config":
             candidates = [
                 ("model", "default model"),
@@ -167,6 +176,8 @@ class SlashCompleter(Completer):
                 ("verbosity", "compact|verbose|debug"),
                 ("max_concurrency", "parallel agent tasks"),
                 ("max_requests", "per-run request budget"),
+                ("agent_timeout", "seconds or off"),
+                ("tool_timeout", "seconds or off"),
                 ("task_model.explore", "route explore tasks"),
                 ("task_model.implement", "route implement tasks"),
                 ("task_model.review", "route review tasks"),

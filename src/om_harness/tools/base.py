@@ -49,7 +49,8 @@ class ToolContext(BaseModel):
     """Shared execution context handed to every tool instance."""
 
     repo_root: Path
-    tool_timeout_seconds: float = 60.0
+    # None disables the per-call timeout (asyncio.wait_for semantics).
+    tool_timeout_seconds: float | None = 60.0
     max_output_chars: int = 20_000
     max_file_read_chars: int = 40_000
     # Environment snapshot for subprocesses. Provider API keys are stripped

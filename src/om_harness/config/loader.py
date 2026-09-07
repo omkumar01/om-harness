@@ -26,6 +26,21 @@ PYPROJECT_TABLE = "om-harness"
 
 ENV_PREFIX = "OM_HARNESS_"
 
+_TIMEOUT_OFF_WORDS = {"off", "none", "disabled"}
+
+
+def parse_timeout(value: Any) -> float | None:
+    """Parse a timeout setting: seconds, or ``off``/``0`` to disable (None).
+
+    Raises ``ValueError`` for non-numeric or negative values.
+    """
+    if isinstance(value, str) and value.strip().lower() in _TIMEOUT_OFF_WORDS:
+        return None
+    seconds = float(value)
+    if seconds < 0:
+        raise ValueError(f"timeout must be >= 0, got {seconds}")
+    return None if seconds == 0 else seconds
+
 
 class ConfigError(Exception):
     """Raised when configuration is malformed or semantically invalid."""
@@ -107,8 +122,8 @@ class HarnessConfig(BaseModel):
     context: ContextConfig = Field(default_factory=ContextConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     max_concurrency: int = 4
-    agent_timeout_seconds: float = 600.0
-    tool_timeout_seconds: float = 60.0
+    agent_timeout_seconds: float | None = 600.0
+    tool_timeout_seconds: float | None = 60.0
     verbosity: Verbosity = Verbosity.compact
     thinking: ThinkingLevel = ThinkingLevel.off
 
@@ -118,6 +133,11 @@ class HarnessConfig(BaseModel):
         if value < 1:
             raise ValueError("max_concurrency must be >= 1")
         return value
+
+    @field_validator("agent_timeout_seconds", "tool_timeout_seconds", mode="before")
+    @classmethod
+    def _timeout_or_off(cls, value: Any) -> float | None:
+        return parse_timeout(value)
 
 
 def _read_table(path: Path) -> dict[str, Any]:
@@ -194,8 +214,8 @@ def _apply_env(config: HarnessConfig, env: Mapping[str, str]) -> HarnessConfig:
 
     simple = {
         "MAX_CONCURRENCY": ("max_concurrency", int),
-        "AGENT_TIMEOUT_SECONDS": ("agent_timeout_seconds", float),
-        "TOOL_TIMEOUT_SECONDS": ("tool_timeout_seconds", float),
+        "AGENT_TIMEOUT_SECONDS": ("agent_timeout_seconds", parse_timeout),
+        "TOOL_TIMEOUT_SECONDS": ("tool_timeout_seconds", parse_timeout),
         "VERBOSITY": ("verbosity", Verbosity),
         "MAX_REQUESTS": None,
     }
