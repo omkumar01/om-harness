@@ -321,6 +321,13 @@ off`) disables them — `None` in the config, which `asyncio.timeout` and
 `wait_for` treat as "no timeout". Tool timeouts propagate immediately
 through the shared live `ToolContext`.
 
+Because the prompt's `bottom_toolbar` only renders while the prompt is
+active, the REPL pins it during turns with a minimal prompt_toolkit app
+(toolbar only) run under `patch_stdout`, so streaming output scrolls
+*above* the bar instead of erasing it; Ctrl+C inside that app cancels the
+turn. Wherever a second app cannot run (tests, non-TTY output, exotic
+terminals) this degrades to the previous plain-await behavior.
+
 ## Testing strategy
 
 - **Unit tests** cover every module contract; provider APIs are mocked via

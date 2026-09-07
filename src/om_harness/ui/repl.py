@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import sys
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -121,6 +122,9 @@ class ChatRepl:
         self._pending_commands: dict[str, str] = {}
         self._command_outputs: list[CommandRun] = []
         self._output_cursor = 0  # Alt+O cycles backwards through commands
+        # Pin the status bar during turns (see _with_pinned_bar); tests and
+        # non-TTY runs set this False or get the plain await anyway.
+        self._pin_status_bar = True
 
     # -- state ----------------------------------------------------------------
 
@@ -385,12 +389,17 @@ class ChatRepl:
 
         async def _turn() -> str:
             pump = asyncio.create_task(self._pump(cursor_holder, rendered, stream))
+            turn_task = asyncio.create_task(self.harness.chat_turn(self.session_id, text))
             try:
-                return await self.harness.chat_turn(self.session_id, text)
+                return await self._with_pinned_bar(turn_task)
             finally:
                 # Cancel, then let the pump finish its in-flight pass so
                 # deltas emitted in the final tick render in-stream instead
                 # of bursting after the turn.
+                if not turn_task.done():
+                    turn_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await turn_task
                 pump.cancel()
                 try:
                     await pump
@@ -512,6 +521,82 @@ class ChatRepl:
                         # One bad event must never kill the live stream.
                         self._stream_warning(exc)
             await asyncio.sleep(PUMP_INTERVAL_SECONDS)
+
+    async def _with_pinned_bar(self, turn_task: "asyncio.Task[str]") -> str:
+        """Await a turn with the status bar pinned to the terminal bottom.
+
+        ``bottom_toolbar`` only renders while a prompt is active, so during a
+        turn the bar scrolls off screen as soon as streaming output starts.
+        A minimal app whose only content is the toolbar keeps it pinned for
+        the whole turn; ``patch_stdout`` re-prints the pump's raw rich output
+        above the app frame instead of tearing through it. Ctrl+C cancels
+        the turn. Wherever a second app cannot run (tests, non-TTY output,
+        exotic terminals) this degrades to a plain await.
+        """
+        if not self._pin_status_bar or not self._stdout_is_tty():
+            return await turn_task
+        try:
+            from prompt_toolkit.application import Application
+            from prompt_toolkit.key_binding import KeyBindings
+            from prompt_toolkit.layout import Layout, Window
+            from prompt_toolkit.patch_stdout import patch_stdout
+        except Exception:  # pragma: no cover - prompt_toolkit is a hard dep
+            return await turn_task
+
+        kb = KeyBindings()
+
+        @kb.add("c-c")
+        def _interrupt(event: Any) -> None:
+            turn_task.cancel()
+            event.app.exit()
+
+        app: Any = Application(
+            layout=Layout(Window(char=" ", height=0)),
+            bottom_toolbar=self._status_bar,
+            key_bindings=kb,
+            full_screen=False,
+        )
+        try:
+            app_task = asyncio.create_task(app.run_async())
+        except Exception:
+            return await turn_task
+
+        # Shielded waiter: cancelling it must not cancel the turn itself.
+        turn_waiter = asyncio.ensure_future(asyncio.shield(turn_task))
+        try:
+            with patch_stdout(raw=True):
+                done, _ = await asyncio.wait(
+                    {turn_waiter, app_task}, return_when=asyncio.FIRST_COMPLETED
+                )
+            if turn_waiter in done:
+                return turn_waiter.result()
+            # The app exited before the turn ended — abandon pinning below.
+        except Exception:
+            # Pin machinery unavailable (non-TTY, exotic terminal, no console
+            # buffer): keep the turn running unmanaged; its result or error
+            # surfaces from the plain await below.
+            pass
+        finally:
+            # NB: CancelledError is a BaseException — awaiting a cancelled
+            # app task must not let it replace the in-flight exception.
+            if not app_task.done():
+                with contextlib.suppress(Exception):
+                    app.exit()
+                app_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await app_task
+            if not turn_waiter.done():
+                turn_waiter.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await turn_waiter
+        return await turn_task
+
+    @staticmethod
+    def _stdout_is_tty() -> bool:
+        try:
+            return sys.stdout.isatty()
+        except Exception:  # pragma: no cover - exotic stdout
+            return False
 
     def _render_event(self, event: Event, stream: _TurnStream | None = None) -> None:
         # File changes and executed commands are always shown in real time,

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 from typing import Any
+
+import pytest
 
 from om_harness.config.loader import Verbosity
 from om_harness.harness import Harness
@@ -467,3 +470,116 @@ def test_slash_skill_unknown_skill_is_handled(
     out = capsys.readouterr().out
     assert "nope" in out
     assert "analyse" in out  # hints at what is available
+
+
+# -- pinned status bar during turns ---------------------------------------------
+
+
+def test_run_turn_completes_with_bar_pinning_disabled(tmp_path: Any, capsys: Any) -> None:
+    """Fallback path: no TTY / pinning off behaves exactly as before."""
+    harness = Harness(repo_root=_repo(tmp_path), env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id)
+    repl._pin_status_bar = False
+
+    repl.run_turn("hello")
+
+    assert "[mock" in capsys.readouterr().out
+
+
+def test_pinned_bar_runs_toolbar_during_turn(
+    tmp_path: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    """With pinning active, the toolbar callable drives a minimal app while
+    the turn runs, and the turn result still comes back."""
+    import prompt_toolkit.application as ptk_app_mod
+    import prompt_toolkit.patch_stdout as ptk_ps_mod
+
+    created: list[Any] = []
+
+    class FakeApp:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self.bottom_toolbar = kwargs.get("bottom_toolbar")
+            self.exit_called = False
+            created.append(self)
+
+        async def run_async(self) -> None:
+            self.toolbar_result = self.bottom_toolbar()
+            await asyncio.Event().wait()  # runs until the turn ends it
+
+        def exit(self) -> None:
+            self.exit_called = True
+
+    class FakePatchStdout:
+        def __enter__(self) -> None:
+            return None
+
+        def __exit__(self, *args: Any) -> bool:
+            return False
+
+    harness = Harness(repo_root=_repo(tmp_path), env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id)
+    monkeypatch.setattr(repl, "_stdout_is_tty", staticmethod(lambda: True))
+    monkeypatch.setattr(ptk_app_mod, "Application", FakeApp)
+    # patch_stdout needs a real console buffer; stub it so the pin path runs.
+    monkeypatch.setattr(ptk_ps_mod, "patch_stdout", lambda raw=True: FakePatchStdout())
+
+    repl.run_turn("hello")
+
+    out = capsys.readouterr().out
+    assert "[mock" in out  # the turn itself completed
+    assert len(created) == 1
+    assert created[0].exit_called
+    assert "model" in created[0].toolbar_result  # real status bar content
+
+
+def test_pinned_bar_propagates_turn_cancellation(tmp_path: Any, monkeypatch: Any) -> None:
+    """Cancelling the turn (Ctrl+C in the pinned app) surfaces as
+    CancelledError, and the app is shut down."""
+    import prompt_toolkit.application as ptk_app_mod
+
+    class FakeApp:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self.exit_called = False
+
+        async def run_async(self) -> None:
+            await asyncio.Event().wait()
+
+        def exit(self) -> None:
+            self.exit_called = True
+
+    harness = Harness(repo_root=_repo(tmp_path), env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id)
+    monkeypatch.setattr(repl, "_stdout_is_tty", staticmethod(lambda: True))
+    monkeypatch.setattr(ptk_app_mod, "Application", FakeApp)
+
+    async def scenario() -> None:
+        async def sleepy() -> str:
+            await asyncio.sleep(5)
+            return "never"
+
+        task = asyncio.create_task(sleepy())
+        await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await repl._with_pinned_bar(task)
+
+    asyncio.run(scenario())
+    assert repl is not None  # scenario completed without hanging
+
+
+def test_cancelled_chat_turn_reports_interrupted(
+    tmp_path: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    harness = Harness(repo_root=_repo(tmp_path), env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id)
+
+    async def cancelled(*args: Any, **kwargs: Any) -> str:
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(harness, "chat_turn", cancelled)
+    repl.run_turn("hello")
+    assert "turn interrupted" in capsys.readouterr().out
