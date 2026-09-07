@@ -27,7 +27,9 @@ COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("thinking", "Show or set the thinking level", "[off|low|medium|high]"),
     SlashCommand("mode", "Cycle approval mode (ask / auto / deny)"),
     SlashCommand("config", "Show or change configuration", "[set <key> <value>]"),
-    SlashCommand("timeout", "Show or set timeouts (agent turn / tool call)", "[agent|tool] <seconds|off>"),
+    SlashCommand(
+        "timeout", "Show or set timeouts (agent turn / tool call)", "[agent|tool] <seconds|off>"
+    ),
     SlashCommand("providers", "List providers and availability"),
     SlashCommand("tools", "List available tools and permissions"),
     SlashCommand("skills", "List available skills"),
