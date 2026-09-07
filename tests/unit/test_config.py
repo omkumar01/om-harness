@@ -6,6 +6,7 @@ import os
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from om_harness.config.loader import ConfigError, HarnessConfig, load_config
 from om_harness.config.secrets import SecretRedactor
@@ -103,7 +104,7 @@ def test_timeout_fields_accept_off_and_zero() -> None:
     assert HarnessConfig(agent_timeout_seconds="off").agent_timeout_seconds is None
     assert HarnessConfig(tool_timeout_seconds=0).tool_timeout_seconds is None
     assert HarnessConfig(agent_timeout_seconds="90").agent_timeout_seconds == 90.0
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         HarnessConfig(agent_timeout_seconds=-1)
 
 

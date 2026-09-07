@@ -522,7 +522,7 @@ class ChatRepl:
                         self._stream_warning(exc)
             await asyncio.sleep(PUMP_INTERVAL_SECONDS)
 
-    async def _with_pinned_bar(self, turn_task: "asyncio.Task[str]") -> str:
+    async def _with_pinned_bar(self, turn_task: asyncio.Task[str]) -> str:
         """Await a turn with the status bar pinned to the terminal bottom.
 
         ``bottom_toolbar`` only renders while a prompt is active, so during a
@@ -1028,7 +1028,9 @@ class ChatRepl:
         elif args[0].lower() in ("agent", "tool") and len(args) == 2:
             keys = (f"{args[0].lower()}_timeout",)
         else:
-            self.renderer.error("usage: /timeout  |  /timeout off  |  /timeout agent|tool <seconds|off>")
+            self.renderer.error(
+                "usage: /timeout  |  /timeout off  |  /timeout agent|tool <seconds|off>"
+            )
             return
         for key in keys:
             try:

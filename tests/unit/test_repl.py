@@ -487,9 +487,7 @@ def test_run_turn_completes_with_bar_pinning_disabled(tmp_path: Any, capsys: Any
     assert "[mock" in capsys.readouterr().out
 
 
-def test_pinned_bar_runs_toolbar_during_turn(
-    tmp_path: Any, capsys: Any, monkeypatch: Any
-) -> None:
+def test_pinned_bar_runs_toolbar_during_turn(tmp_path: Any, capsys: Any, monkeypatch: Any) -> None:
     """With pinning active, the toolbar callable drives a minimal app while
     the turn runs, and the turn result still comes back."""
     import prompt_toolkit.application as ptk_app_mod
