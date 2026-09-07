@@ -71,7 +71,7 @@ async def run_process(
     argv: list[str],
     *,
     cwd: Any,
-    timeout: float,
+    timeout: float | None,
     env: dict[str, str] | None = None,
     max_output_chars: int = 20_000,
     input_bytes: bytes | None = None,

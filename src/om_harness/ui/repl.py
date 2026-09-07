@@ -1024,7 +1024,7 @@ class ChatRepl:
             )
             return
         if args[0].lower() == "off" and len(args) == 1:
-            keys = ("agent_timeout", "tool_timeout")
+            keys: tuple[str, ...] = ("agent_timeout", "tool_timeout")
         elif args[0].lower() in ("agent", "tool") and len(args) == 2:
             keys = (f"{args[0].lower()}_timeout",)
         else:
