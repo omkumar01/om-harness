@@ -1,5 +1,10 @@
 # om-harness
 
+[![PyPI version](https://img.shields.io/pypi/v/om-harness.svg)](https://pypi.org/project/om-harness/)
+[![PyPI Downloads](https://img.shields.io/pypi/dm/om-harness.svg)](https://pypi.org/project/om-harness/)
+[![CI](https://img.shields.io/github/actions/workflow/status/omkumar01/om-harness/ci.yml?branch=main&label=CI)](https://github.com/omkumar01/om-harness/actions)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A context-efficient AI coding-agent harness for real git repositories.
 
 om-harness runs AI coding agents inside your project: it inspects the repo,
@@ -73,7 +78,7 @@ Requires Python 3.11+. The recommended installer is
 [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv tool install om-harness                    # from PyPI (not released yet)
+uv tool install om-harness                    # latest from PyPI
 ```
 
 or directly from GitHub:
@@ -88,7 +93,7 @@ From a clone (for development):
 git clone https://github.com/omkumar01/om-harness
 cd om-harness
 uv sync
-uv tool install . --force 
+uv tool install . --force                    # force reinstall after making changes to source
 uv run om-harness --version
 ```
 
@@ -359,10 +364,28 @@ real agent loop. Race-prone parallelism is tested with sentinel
 synchronization that would deadlock if work were serialized.
 
 ```bash
-make check               # format + lint + types + tests (with coverage gate)
+make check               # format + lint + types + tests (coverage-gated)
 uv run pytest            # fast: unit + e2e
 uv run pytest -m integration   # live provider round-trips (needs keys)
 ```
+
+## Contributing
+
+om-harness is intentionally small and readable, so contributions are very
+welcome. The loop is:
+
+```bash
+git clone https://github.com/omkumar01/om-harness
+cd om-harness
+uv sync
+make check            # ruff format + ruff check + mypy + pytest with a coverage gate
+```
+
+Good places to dig in: `src/om_harness/models/` (Pydantic contracts — the
+system's spine), `src/om_harness/ui/` (terminal renderer, REPL, web), and
+`src/om_harness/tools/` (permission levels, the approval engine). Please read
+the [CONTRIBUTING.md](CONTRIBUTING.md) workflow, and open an issue or PR for
+anything that looks off — including the docs.
 
 ## Documentation
 
