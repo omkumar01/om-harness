@@ -1028,9 +1028,7 @@ class ChatRepl:
         elif args[0].lower() in ("agent", "tool") and len(args) == 2:
             keys = (f"{args[0].lower()}_timeout",)
         else:
-            self.renderer.error(
-                "usage: /timeout  |  /timeout off  |  /timeout agent|tool <seconds|off>"
-            )
+            self.renderer.error("usage: /timeout  |  /timeout off  |  /timeout agent|tool <seconds|off>")
             return
         for key in keys:
             try:
