@@ -139,7 +139,7 @@ def _enable_vt_output() -> tuple[bool, Any]:
 
 
 def _restore_vt_output(token: Any) -> None:
-    if token is None:
+    if sys.platform != "win32" or token is None:
         return
     try:
         import ctypes
