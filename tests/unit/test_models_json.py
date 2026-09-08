@@ -343,6 +343,38 @@ def test_inline_api_key_flow() -> None:
     assert config.inline_api_keys() == [inline_key]
 
 
+def test_custom_provider_names_and_summaries_are_sorted_and_json_ready() -> None:
+    registry = _registry()
+    assert registry.custom_provider_names == ["lm-studio", "nvidia"]
+
+    summaries = registry.custom_provider_summaries()
+    assert [summary["name"] for summary in summaries] == ["lm-studio", "nvidia"]
+    local = summaries[0]
+    assert local["prefix"] == "lm-studio:"
+    assert local["available"] is True
+    assert local["key_source"] == "none"
+    assert local["models"][0]["reasoning"] is True
+    assert local["models"][0]["context_window"] == 256000
+    assert registry.endpoint_for("lm-studio:ornith-1.0-9b") == "http://127.0.0.1:8080/v1"
+
+
+def test_make_model_builds_openai_responses_client() -> None:
+    config = load_config_from_dict(
+        {
+            "providers": {
+                "responses": {
+                    "baseUrl": "https://api.example.com/v1",
+                    "api": "openai-responses",
+                    "apiKey": "responses-" + "dummy-key",
+                    "models": [{"id": "reasoning-model"}],
+                }
+            }
+        }
+    )
+    model = ProviderRegistry(env={}, custom=config).make_model("responses:reasoning-model")
+    assert model is not None
+
+
 # -- Harness integration ------------------------------------------------------
 
 

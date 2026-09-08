@@ -18,6 +18,7 @@ from om_harness.providers.router import ModelRouter
 
 FAKE_OPENAI_KEY = "test-fake-openai-key"
 FAKE_ANTHROPIC_KEY = "test-fake-anthropic-key"
+FAKE_GOOGLE_KEY = "test-fake-google-key"
 
 
 # -- registry -----------------------------------------------------------------
@@ -69,6 +70,39 @@ def test_registry_creates_real_model_without_network() -> None:
     registry = ProviderRegistry(env={"OPENAI_API_KEY": FAKE_OPENAI_KEY})
     model = registry.make_model("openai:gpt-4o-mini")
     assert model is not None
+
+
+@pytest.mark.parametrize(
+    ("model_prefix", "model_name", "env_key"),
+    [
+        ("anthropic", "claude-sonnet-4-5", "ANTHROPIC_API_KEY"),
+        ("google-gla", "gemini-2.0-flash", "GOOGLE_API_KEY"),
+    ],
+)
+def test_registry_creates_each_builtin_model_without_network(
+    model_prefix: str, model_name: str, env_key: str
+) -> None:
+    registry = ProviderRegistry(env={env_key: FAKE_ANTHROPIC_KEY})
+    model = registry.make_model(f"{model_prefix}:{model_name}")
+    assert model is not None
+
+
+def test_registry_selects_first_available_provider_and_requires_one_for_default() -> None:
+    empty = ProviderRegistry(env={})
+    assert empty.first_available() is None
+    with pytest.raises(Exception, match="no provider available"):
+        empty.default_model()
+
+    registry = ProviderRegistry(env={"GOOGLE_API_KEY": FAKE_GOOGLE_KEY})
+    assert registry.first_available() == "google"
+    assert registry.default_model().startswith("google-gla:")
+
+
+def test_registry_reports_builtin_endpoints_and_unknown_models() -> None:
+    registry = ProviderRegistry(env={"OPENAI_API_KEY": FAKE_OPENAI_KEY})
+    assert registry.endpoint_for("openai:gpt-4o-mini") == "https://api.openai.com/v1"
+    assert registry.endpoint_for("anthropic:claude-sonnet-4-5") is None
+    assert registry.endpoint_for("unknown:model") is None
 
 
 # -- router -------------------------------------------------------------------

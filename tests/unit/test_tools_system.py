@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from typing import Any
 
 import pytest
@@ -38,7 +39,9 @@ def ctx(repo: Any) -> ToolContext:
 
 
 async def test_run_shell_captures_output(ctx: ToolContext) -> None:
-    result = await RunShell(ctx).run(RunShell.Args(command="echo hello-from-om"))
+    result = await RunShell(ctx).run(
+        RunShell.Args(command=f"{sys.executable} -c \"print('hello-from-om')\"")
+    )
     assert result.ok
     assert "hello-from-om" in result.output
     assert RunShell.permission == Permission.mutating
@@ -46,8 +49,9 @@ async def test_run_shell_captures_output(ctx: ToolContext) -> None:
 
 async def test_run_shell_event_data_carries_output_preview(ctx: ToolContext) -> None:
     """The completion event carries a trimmed output copy for the UI."""
-    result = await RunShell(ctx).run(RunShell.Args(command="echo line-one"))
-    assert result.data["command"] == "echo line-one"
+    command = f"{sys.executable} -c \"print('line-one')\""
+    result = await RunShell(ctx).run(RunShell.Args(command=command))
+    assert result.data["command"] == command
     assert result.data["exit_code"] == 0
     assert "line-one" in result.data["output"]
     assert result.data["output_lines"] == 1
