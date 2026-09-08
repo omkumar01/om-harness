@@ -18,8 +18,8 @@
 <a href="https://pypi.org/project/om-harness">
   <img src="https://img.shields.io/pypi/v/om-harness?color=%2334D058&label=pypi%20package" alt="Package version">
 </a>
-<a href="https://pypi.org/project/om-harness">
-  <img src="https://img.shields.io/pypi/dm/om-harness.svg" alt="PyPI downloads">
+<a href="https://pepy.tech/project/om-harness">
+  <img src="https://static.pepy.tech/badge/om-harness/month" alt="Monthly downloads">
 </a>
 <a href="https://pypi.org/project/om-harness">
   <img src="https://img.shields.io/pypi/pyversions/om-harness.svg?color=%2334D058" alt="Supported Python versions">
