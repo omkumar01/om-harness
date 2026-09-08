@@ -1,11 +1,33 @@
-# om-harness
+<h1 align="center">om-harness</h1>
 
-[![PyPI version](https://img.shields.io/pypi/v/om-harness.svg)](https://pypi.org/project/om-harness/)
-[![PyPI Downloads](https://img.shields.io/pypi/dm/om-harness.svg)](https://pypi.org/project/om-harness/)
-[![CI](https://img.shields.io/github/actions/workflow/status/omkumar01/om-harness/ci.yml?branch=main&label=CI)](https://github.com/omkumar01/om-harness/actions)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <strong>Ship better code. Spend less context.</strong><br>
+  A context-efficient AI coding-agent harness for real git repositories.
+</p>
 
-A context-efficient AI coding-agent harness for real git repositories.
+<p align="center">
+<a href="https://github.com/omkumar01/om-harness/actions/workflows/ci.yml?query=branch%3Amain">
+  <img src="https://github.com/omkumar01/om-harness/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI">
+</a>
+<a href="https://github.com/omkumar01/om-harness/actions/workflows/release.yml">
+  <img src="https://github.com/omkumar01/om-harness/actions/workflows/release.yml/badge.svg" alt="Release">
+</a>
+<a href="https://coverage-badge.samuelcolvin.workers.dev/redirect/omkumar01/om-harness">
+  <img src="https://coverage-badge.samuelcolvin.workers.dev/omkumar01/om-harness.svg" alt="Coverage">
+</a>
+<a href="https://pypi.org/project/om-harness">
+  <img src="https://img.shields.io/pypi/v/om-harness?color=%2334D058&label=pypi%20package" alt="Package version">
+</a>
+<a href="https://pypi.org/project/om-harness">
+  <img src="https://img.shields.io/pypi/dm/om-harness.svg" alt="PyPI downloads">
+</a>
+<a href="https://pypi.org/project/om-harness">
+  <img src="https://img.shields.io/pypi/pyversions/om-harness.svg?color=%2334D058" alt="Supported Python versions">
+</a>
+<a href="LICENSE">
+  <img src="https://img.shields.io/github/license/omkumar01/om-harness" alt="License">
+</a>
+</p>
 
 om-harness runs AI coding agents inside your project: it inspects the repo,
 plans the work, edits files, runs tests, and reports what it did — while
@@ -95,6 +117,15 @@ cd om-harness
 uv sync
 uv tool install . --force                    # force reinstall after making changes to source
 uv run om-harness --version
+```
+
+To run the web reference client from a clone, install the optional web
+dependencies and start the server:
+
+```bash
+# web reference client (needs the `web` extra):
+uv sync --extra web
+uv run python -m om_harness.ui.web.server
 ```
 
 Then, inside any git repository:
