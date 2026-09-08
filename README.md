@@ -12,8 +12,8 @@
 <a href="https://github.com/omkumar01/om-harness/actions/workflows/release.yml">
   <img src="https://github.com/omkumar01/om-harness/actions/workflows/release.yml/badge.svg" alt="Release">
 </a>
-<a href="https://coverage-badge.samuelcolvin.workers.dev/redirect/omkumar01/om-harness">
-  <img src="https://coverage-badge.samuelcolvin.workers.dev/omkumar01/om-harness.svg" alt="Coverage">
+<a href="https://coverage-badge.samuelcolvin.workers.dev/redirect/omkumar01/om-harness?match=coverage">
+  <img src="https://coverage-badge.samuelcolvin.workers.dev/omkumar01/om-harness.svg?match=coverage" alt="Coverage">
 </a>
 <a href="https://pypi.org/project/om-harness">
   <img src="https://img.shields.io/pypi/v/om-harness?color=%2334D058&label=pypi%20package" alt="Package version">
