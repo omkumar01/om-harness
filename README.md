@@ -29,15 +29,62 @@
 </a>
 </p>
 
-om-harness runs AI coding agents inside your project: it inspects the repo,
-plans the work, edits files, runs tests, and reports what it did — while
-keeping a tight lid on context usage, latency, and cost.
+<p align="center">
+  <a href="#see-it-in-action">See it in action</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#contributing">Contribute</a> ·
+  <a href="https://github.com/omkumar01/om-harness/discussions">Discuss</a>
+</p>
+
+om-harness is a local-first coding agent for real git repositories. It
+inspects the repo, plans the work, edits files, runs tests, and reports what
+it did — while keeping context usage, latency, cost, and tool permissions
+under control.
+
+**Why use it?**
+
+| Common coding-agent problem | om-harness approach |
+| --- | --- |
+| Context grows on every turn | Bounded repository indexes and history |
+| Agent behavior is hard to inspect | Typed plans, task results, and events |
+| Tools can make unsafe changes | Permission levels and approval policies |
+| Interrupted work has to start over | Durable sessions, checkpoints, and `resume` |
+| Trying the project requires API keys | Deterministic offline demos and tests |
+
+## See it in action
+
+The complete offline flow goes from repository inspection to edits and tests:
+
+<p align="left">
+  <img src="docs/assets/om-harness-demo.gif" alt="om-harness inspecting a repository, editing a file, and running tests" width="900">
+</p>
+
+### Easy installation using uv 
+
+```console
+$ uv tool install om-harness
+```
+### Easy installation using pip
+
+```console
+$ pip install om-harness
+```
+
+### Using harness
 
 ```console
 $ cd your-project
 $ om-harness init
 $ om-harness run "fix the failing test in test_worker.py"
 ```
+
+### Open an interactive shell using below command
+
+```console
+$ om-harness
+```
+
+`/setup` walks you through provider configuration in interactive shell
 
 ---
 

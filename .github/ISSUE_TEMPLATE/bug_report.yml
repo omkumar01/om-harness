@@ -1,0 +1,37 @@
+name: Bug report
+description: Report a reproducible problem in om-harness
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve om-harness. Please remove secrets from logs and configuration before posting.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Run `om-harness --version` and paste the result.
+      placeholder: 1.0.0
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Include the command, expected behavior, and actual behavior.
+      placeholder: |
+        Command:
+        Expected:
+        Actual:
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Paste relevant output from `om-harness doctor --json` and the failing test or traceback.
+      render: text
+    validations:
+      required: false

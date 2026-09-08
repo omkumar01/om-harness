@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest a focused improvement to om-harness
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem would this solve?
+      placeholder: I need om-harness to...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the smallest useful version of the change.
+      placeholder: A good first version would...
+    validations:
+      required: true
+  - type: textarea
+    id: contribution
+    attributes:
+      label: Contribution
+      description: Tell us whether you would like to help implement or test this.
+      placeholder: I can help with...
+    validations:
+      required: false
