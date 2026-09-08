@@ -54,4 +54,16 @@ First stable release of the om-harness coding-agent harness.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Status bar drawn inline over the streamed thinking text**: the turn ran a
+  second prompt_toolkit app whose repaints raced the streamed writes, so on
+  some terminals (notably Windows) the bar was painted mid-stream, right after
+  the last streamed character. The pin no longer uses a second app at all:
+  scrolling is confined to rows 1..H-1 (DECSTBM scroll region, enabled with
+  VT processing on Windows) and the bar is repainted on the reserved bottom
+  row each tick, so the stream scrolls above it with no cursor tracking. Falls
+  back to plain await (no bar) on non-TTY output or terminals without VT
+  sequences.
+
 <!-- Add new entries here, above the latest release. -->

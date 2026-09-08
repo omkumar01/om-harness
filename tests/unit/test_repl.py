@@ -474,6 +474,28 @@ def test_slash_skill_unknown_skill_is_handled(
 
 # -- pinned status bar during turns ---------------------------------------------
 
+_REGION_SET = "\x1b[1;3r"  # 4-line test terminal: scroll region rows 1..H-1
+_REGION_RESET = "\x1b[r"
+
+
+def _pinned_repl(tmp_path: Any, monkeypatch: Any, *, lines: int = 4) -> ChatRepl:
+    """A REPL whose pin path believes it is on a small VT terminal."""
+    import om_harness.ui.repl as repl_mod
+
+    harness = Harness(repo_root=_repo(tmp_path), env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id)
+    monkeypatch.setattr(repl, "_stdout_is_tty", staticmethod(lambda: True))
+    monkeypatch.setattr(repl_mod, "_enable_vt_output", lambda: (True, None))
+
+    class FakeSize:
+        def __init__(self, lines: int) -> None:
+            self.lines = lines
+            self.columns = 80
+
+    monkeypatch.setattr(repl_mod.shutil, "get_terminal_size", lambda: FakeSize(lines))
+    return repl
+
 
 def test_run_turn_completes_with_bar_pinning_disabled(tmp_path: Any, capsys: Any) -> None:
     """Fallback path: no TTY / pinning off behaves exactly as before."""
@@ -484,94 +506,53 @@ def test_run_turn_completes_with_bar_pinning_disabled(tmp_path: Any, capsys: Any
 
     repl.run_turn("hello")
 
-    assert "[mock" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "[mock" in out
+    assert "\x1b" not in out  # no ANSI pin sequences leaked
 
 
-def test_pinned_bar_runs_toolbar_during_turn(tmp_path: Any, capsys: Any, monkeypatch: Any) -> None:
-    """With pinning active, the toolbar callable drives a minimal app while
-    the turn runs, and the turn result still comes back."""
-    import prompt_toolkit.application as ptk_app_mod
-    import prompt_toolkit.layout as ptk_layout
-    import prompt_toolkit.patch_stdout as ptk_ps_mod
-
-    created: list[Any] = []
-    controls: list[Any] = []
-
-    class FakeControl:
-        """Stands in for FormattedTextControl; captures the text callable."""
-
-        def __init__(self, text: Any = None, **kwargs: Any) -> None:
-            self.text = text
-            controls.append(self)
-
-        def reset(self) -> None:  # Window.__init__ calls this
-            pass
-
-    class FakeApp:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            self.exit_called = False
-            self._done = asyncio.Event()
-            created.append(self)
-
-        async def run_async(self) -> None:
-            self.toolbar_result = controls[0].text()
-            await self._done.wait()
-
-        def exit(self) -> None:
-            self.exit_called = True
-
-        def invalidate(self) -> None:
-            self._done.set()
-
-    class FakePatchStdout:
-        def __enter__(self) -> None:
-            return None
-
-        def __exit__(self, *args: Any) -> bool:
-            return False
-
-    harness = Harness(repo_root=_repo(tmp_path), env={})
-    session = harness.sessions.create(repo_root=str(tmp_path))
-    repl = ChatRepl(harness, session_id=session.session_id)
-    monkeypatch.setattr(repl, "_stdout_is_tty", staticmethod(lambda: True))
-    monkeypatch.setattr(ptk_layout, "FormattedTextControl", FakeControl)
-    monkeypatch.setattr(ptk_app_mod, "Application", FakeApp)
-    # patch_stdout needs a real console buffer; stub it so the pin path runs.
-    monkeypatch.setattr(ptk_ps_mod, "patch_stdout", lambda raw=True: FakePatchStdout())
+def test_pinned_bar_reserves_bottom_row_during_turn(
+    tmp_path: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    """With pinning active, the turn runs inside a scroll region and the bar
+    is drawn on the reserved bottom row; the turn result still comes back."""
+    repl = _pinned_repl(tmp_path, monkeypatch)
 
     repl.run_turn("hello")
 
     out = capsys.readouterr().out
     assert "[mock" in out  # the turn itself completed
-    assert len(created) == 1
-    assert created[0].exit_called
-    assert "model" in created[0].toolbar_result  # real status bar content
+    assert _REGION_SET in out  # scrolling confined to rows 1..H-1
+    assert "\x1b[4;1H" in out  # bar painted on the reserved row 4
+    assert "provider" in out  # real status bar content
+    assert out.index(_REGION_SET) < out.rindex(_REGION_RESET)  # reset after set
+    assert out.count(_REGION_RESET) >= 1  # region released at teardown
 
 
-def test_pinned_bar_propagates_turn_cancellation(tmp_path: Any, monkeypatch: Any) -> None:
-    """Cancelling the turn (Ctrl+C in the pinned app) surfaces as
-    CancelledError, and the app is shut down."""
-    import prompt_toolkit.application as ptk_app_mod
+def test_pinned_bar_redraws_on_tick(tmp_path: Any, capsys: Any, monkeypatch: Any) -> None:
+    """The repaint loop redraws the bar while the turn is running."""
+    import om_harness.ui.repl as repl_mod
 
-    class FakeApp:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            self.exit_called = False
-            self._done = asyncio.Event()
+    monkeypatch.setattr(repl_mod, "BAR_REFRESH_SECONDS", 0.01)
+    repl = _pinned_repl(tmp_path, monkeypatch)
 
-        async def run_async(self) -> None:
-            await self._done.wait()
+    async def scenario() -> None:
+        async def slowish() -> str:
+            await asyncio.sleep(0.08)
+            return "ok"
 
-        def exit(self) -> None:
-            self.exit_called = True
+        await repl._with_pinned_bar(asyncio.create_task(slowish()))
 
-        def invalidate(self) -> None:
-            self._done.set()
+    asyncio.run(scenario())
+    out = capsys.readouterr().out
+    assert out.count("\x1b[4;1H") >= 2  # initial paint plus at least one tick
 
-    harness = Harness(repo_root=_repo(tmp_path), env={})
-    session = harness.sessions.create(repo_root=str(tmp_path))
-    repl = ChatRepl(harness, session_id=session.session_id)
-    monkeypatch.setattr(repl, "_stdout_is_tty", staticmethod(lambda: True))
-    monkeypatch.setattr(ptk_app_mod, "Application", FakeApp)
+
+def test_pinned_bar_resets_region_on_cancellation(
+    tmp_path: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    """Cancelling the turn (Ctrl+C) still releases the scroll region."""
+    repl = _pinned_repl(tmp_path, monkeypatch)
 
     async def scenario() -> None:
         async def sleepy() -> str:
@@ -586,6 +567,26 @@ def test_pinned_bar_propagates_turn_cancellation(tmp_path: Any, monkeypatch: Any
 
     asyncio.run(scenario())
     assert repl is not None  # scenario completed without hanging
+    out = capsys.readouterr().out
+    assert _REGION_SET in out
+    assert _REGION_RESET in out  # teardown ran on the cancellation path
+
+
+def test_pinned_bar_falls_back_without_vt(tmp_path: Any, capsys: Any, monkeypatch: Any) -> None:
+    """A terminal that cannot do VT sequences gets the plain await."""
+    import om_harness.ui.repl as repl_mod
+
+    harness = Harness(repo_root=_repo(tmp_path), env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id)
+    monkeypatch.setattr(repl, "_stdout_is_tty", staticmethod(lambda: True))
+    monkeypatch.setattr(repl_mod, "_enable_vt_output", lambda: (False, None))
+
+    repl.run_turn("hello")
+
+    out = capsys.readouterr().out
+    assert "[mock" in out  # the turn itself completed
+    assert _REGION_SET not in out  # no pin sequences were written
 
 
 def test_cancelled_chat_turn_reports_interrupted(

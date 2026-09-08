@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import shutil
 import sys
 import time
 from dataclasses import dataclass, field
@@ -47,6 +48,13 @@ from om_harness.ui.terminal import TerminalRenderer
 EXIT_COMMANDS = {"exit", "quit", ":q", "q"}
 PUMP_INTERVAL_SECONDS = 0.05
 CONTEXT_BUDGET_TOKENS = 200_000  # gauge ceiling when no budget is configured
+BAR_REFRESH_SECONDS = 1.0  # status bar repaint tick during a turn
+
+# Raw ANSI used to pin the bar; the terminal must speak VT sequences (we
+# enable that on Windows consoles before writing any of it).
+_ESC = "\x1b"
+_ENABLE_VT = 0x0004  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+_STD_OUTPUT_HANDLE = -11
 
 # Tools whose completions trigger a real-time file-change display.
 _CHANGE_TOOLS = {"write_file", "edit_file"}
@@ -90,6 +98,56 @@ class _TurnStream:
 
     def joined(self) -> str:
         return "".join(self.text)
+
+
+@dataclass
+class _PinnedBar:
+    """State for the bottom-row status bar pin active during one turn."""
+
+    height: int
+    vt_token: Any = None  # Windows console-mode restore token
+    content: str = ""  # last text painted, to skip no-op repaints
+    done: bool = False
+    task: asyncio.Task[None] | None = None  # repaint loop
+
+
+def _enable_vt_output() -> tuple[bool, Any]:
+    """Make sure stdout accepts ANSI escape sequences.
+
+    POSIX terminals always do. Windows consoles need
+    ENABLE_VIRTUAL_TERMINAL_PROCESSING; a redirected (non-console) Windows
+    handle reports no console mode, which is also the "not a terminal" answer
+    we want. Returns ``(ok, restore_token)``; ``None`` means nothing to undo.
+    """
+    if sys.platform != "win32":
+        return True, None
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.GetStdHandle(_STD_OUTPUT_HANDLE)
+        mode = ctypes.c_uint32()
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False, None
+        if mode.value & _ENABLE_VT:
+            return True, None
+        if not kernel32.SetConsoleMode(handle, mode.value | _ENABLE_VT):
+            return False, None
+        return True, (handle, mode.value)
+    except Exception:
+        return False, None
+
+
+def _restore_vt_output(token: Any) -> None:
+    if token is None:
+        return
+    try:
+        import ctypes
+
+        handle, previous = token
+        ctypes.windll.kernel32.SetConsoleMode(handle, previous)
+    except Exception:
+        pass
 
 
 @dataclass
@@ -526,106 +584,95 @@ class ChatRepl:
         """Await a turn with the status bar pinned to the terminal bottom.
 
         ``bottom_toolbar`` only renders while a prompt is active, so during a
-        turn the bar scrolls off screen as soon as streaming output starts.
-        A minimal app whose only content is the toolbar keeps it pinned for
-        the whole turn; ``patch_stdout`` re-prints the pump's raw rich output
-        above the app frame instead of tearing through it. Ctrl+C cancels
-        the turn. Wherever a second app cannot run (tests, non-TTY output,
-        exotic terminals) this degrades to a plain await.
+        turn the bar would scroll off with the stream. Scrolling is confined
+        to rows 1..H-1 (DECSTBM) and the bar is drawn on the reserved last
+        row, so the stream scrolls above it with no cursor tracking and no
+        repaint coordination — a second prompt_toolkit app needed both and
+        tore the bar through the streamed text. Ctrl+C cancels the turn via
+        the normal KeyboardInterrupt path. Wherever pinning is unavailable
+        (tests, non-TTY output, no VT sequences) this degrades to a plain
+        await.
         """
         if not self._pin_status_bar or not self._stdout_is_tty():
             return await turn_task
+        state = self._pin_bar_setup()
         try:
-            from prompt_toolkit.application import Application
-            from prompt_toolkit.key_binding import KeyBindings
-            from prompt_toolkit.layout import FormattedTextControl, HSplit, Layout, Window
-            from prompt_toolkit.patch_stdout import patch_stdout
-        except Exception:  # pragma: no cover - prompt_toolkit is a hard dep
             return await turn_task
-
-        kb = KeyBindings()
-
-        @kb.add("c-c")
-        def _interrupt(event: Any) -> None:
-            turn_task.cancel()
-            event.app.exit()
-
-        # The toolbar as layout content (Application has no bottom_toolbar
-        # kwarg — that is a PromptSession convenience). refresh_interval
-        # keeps the context gauge live during the turn.
-        import os
-
-        def _build_app() -> Any:
-            toolbar_window = Window(
-                FormattedTextControl(self._status_bar, show_cursor=False),
-                style="class:bottom-toolbar",
-                height=1,
-            )
-            return Application(
-                layout=Layout(HSplit([toolbar_window])),
-                key_bindings=kb,
-                full_screen=False,
-                refresh_interval=1,
-                erase_when_done=True,
-            )
-
-        try:
-            # Construction itself needs a usable console output; on Windows
-            # a stray TERM (Git Bash) breaks detection, so retry once with
-            # it cleared — same trick as _make_prompt_session. Anything else
-            # falls back to the plain await below.
-            app = _build_app()
-        except Exception:
-            saved_term = os.environ.get("TERM")
-            try:
-                if saved_term:
-                    os.environ.pop("TERM")
-                app = _build_app()
-            except Exception:
-                return await turn_task  # pinning unavailable this turn
-            finally:
-                if saved_term:
-                    os.environ["TERM"] = saved_term
-        try:
-            app_task = asyncio.create_task(app.run_async())
-        except Exception:
-            return await turn_task
-
-        # Shielded waiter: cancelling it must not cancel the turn itself.
-        turn_waiter = asyncio.ensure_future(asyncio.shield(turn_task))
-        try:
-            with patch_stdout(raw=True):
-                done, _ = await asyncio.wait(
-                    {turn_waiter, app_task}, return_when=asyncio.FIRST_COMPLETED
-                )
-            if turn_waiter in done:
-                return turn_waiter.result()
-            # The app exited before the turn ended — abandon pinning below.
-        except Exception:
-            # Pin machinery unavailable (non-TTY, exotic terminal, no console
-            # buffer): keep the turn running unmanaged; its result or error
-            # surfaces from the plain await below.
-            pass
         finally:
-            # NB: CancelledError is a BaseException — awaiting a cancelled
-            # app task must not let it replace the in-flight exception.
-            if not app_task.done():
-                with contextlib.suppress(Exception):
-                    app.exit()
-                    app.invalidate()  # wake the loop so it processes the exit
-                # Let the app finish its done-state render (erase_when_done
-                # removes the toolbar row); hard-cancel only if it hangs.
-                with contextlib.suppress(asyncio.TimeoutError, Exception):
-                    await asyncio.wait_for(asyncio.shield(app_task), timeout=2.0)
-            if not app_task.done():
-                app_task.cancel()
+            if state is not None:
+                await self._pin_bar_teardown(state)
+
+    def _pin_bar_setup(self) -> _PinnedBar | None:
+        """Reserve the terminal's bottom row for the status bar.
+
+        Returns the pin state, or None when the terminal cannot do VT
+        sequences (or is too small to reserve a row) and the caller should
+        just await the turn plainly.
+        """
+        try:
+            vt_ok, vt_token = _enable_vt_output()
+            if not vt_ok:
+                return None
+            height = shutil.get_terminal_size().lines
+            if height < 2:
+                _restore_vt_output(vt_token)
+                return None
+            state = _PinnedBar(height=height, vt_token=vt_token)
+            # DECSTBM homes the cursor, so save/restore around it — the
+            # stream keeps writing at the current position.
+            self._raw_write(f"{_ESC}7{_ESC}[1;{height - 1}r{_ESC}8")
+            self._pin_bar_paint(state)
+            state.task = asyncio.create_task(self._bar_redraw_loop(state))
+            return state
+        except Exception:
+            return None  # pinning unavailable this turn
+
+    def _pin_bar_paint(self, state: _PinnedBar) -> None:
+        """Repaint the bar row (outside the scroll region).
+
+        Save/restore wraps the jump to the bottom row, so the stream cursor
+        is left exactly where it was.
+        """
+        text = self._status_bar()
+        width = shutil.get_terminal_size().columns
+        state.content = text
+        bar = f" {_ESC}[2m{text[: max(1, width - 1)]}{_ESC}[22m"
+        bar = bar.ljust(width)  # overwrite what a longer bar left behind
+        self._raw_write(f"{_ESC}7{_ESC}[{state.height};1H{_ESC}[2K{bar}{_ESC}8")
+
+    async def _pin_bar_teardown(self, state: _PinnedBar) -> None:
+        """Reset the scroll region and erase the bar row."""
+        state.done = True
+        if state.task is not None:
+            state.task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
-                await app_task
-            if not turn_waiter.done():
-                turn_waiter.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await turn_waiter
-        return await turn_task
+                await state.task
+            state.task = None
+        self._raw_write(f"{_ESC}7{_ESC}[r{_ESC}[{state.height};1H{_ESC}[2K{_ESC}8")
+        _restore_vt_output(state.vt_token)
+
+    async def _bar_redraw_loop(self, state: _PinnedBar) -> None:
+        """Repaint the bar each tick; survives a mid-turn terminal resize."""
+        while True:
+            await asyncio.sleep(BAR_REFRESH_SECONDS)
+            if state.done:
+                return
+            try:
+                size = shutil.get_terminal_size()
+                if size.lines >= 2 and size.lines != state.height:
+                    state.height = size.lines
+                    self._raw_write(f"{_ESC}7{_ESC}[1;{size.lines - 1}r{_ESC}8")
+                if self._status_bar() != state.content or size.lines != state.height:
+                    self._pin_bar_paint(state)
+            except Exception:
+                continue  # a bad tick must not kill the redraw loop
+
+    def _raw_write(self, text: str) -> None:
+        """Write raw ANSI straight to the terminal, bypassing rich styling."""
+        with contextlib.suppress(Exception):
+            file = self.renderer.console.file
+            file.write(text)
+            file.flush()
 
     @staticmethod
     def _stdout_is_tty() -> bool:
