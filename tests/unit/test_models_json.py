@@ -365,7 +365,7 @@ def test_make_model_builds_openai_responses_client() -> None:
                 "responses": {
                     "baseUrl": "https://api.example.com/v1",
                     "api": "openai-responses",
-                    "apiKey": "responses-" + "dummy-key",
+                    "apiKey": "placeholder",
                     "models": [{"id": "reasoning-model"}],
                 }
             }
