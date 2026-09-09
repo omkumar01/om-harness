@@ -5,9 +5,9 @@
     "semantic_hash": "daa4197cdd6256eb8a8a5c1700420b84"
   },
   "pyproject.toml": {
-    "mtime": 1788877705.2682688,
-    "ast_hash": "e5708408e4bf4cf589b2411af30526d5",
-    "semantic_hash": "e5708408e4bf4cf589b2411af30526d5"
+    "mtime": 1788949678.4817617,
+    "ast_hash": "3fe035555cc0dd083fb0f5e5c2428581",
+    "semantic_hash": "3fe035555cc0dd083fb0f5e5c2428581"
   },
   "scripts/check.py": {
     "mtime": 1788628658.9802637,
@@ -20,9 +20,9 @@
     "semantic_hash": "fd39620ad48923134c640c1638762667"
   },
   "src/om_harness/__init__.py": {
-    "mtime": 1788778184.055861,
-    "ast_hash": "2c09efec9a9efc163f5ca392ef862fe1",
-    "semantic_hash": "2c09efec9a9efc163f5ca392ef862fe1"
+    "mtime": 1788949679.1370018,
+    "ast_hash": "ce5cc4f81cd578112e9270662ea59b63",
+    "semantic_hash": "ce5cc4f81cd578112e9270662ea59b63"
   },
   "src/om_harness/cli/__init__.py": {
     "mtime": 1788628623.1759937,
@@ -65,9 +65,9 @@
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "src/om_harness/context/assembler.py": {
-    "mtime": 1788736893.1461856,
-    "ast_hash": "093b3cc79814b91d5474cb6ba4afc928",
-    "semantic_hash": "093b3cc79814b91d5474cb6ba4afc928"
+    "mtime": 1788948361.5904524,
+    "ast_hash": "fc661a0b1d60d0b1e2a45ab0ffac33b4",
+    "semantic_hash": "fc661a0b1d60d0b1e2a45ab0ffac33b4"
   },
   "src/om_harness/context/budget.py": {
     "mtime": 1788630261.997991,
@@ -250,14 +250,14 @@
     "semantic_hash": "5d112062f11dcdae3c2bcae39af7ec19"
   },
   "src/om_harness/ui/repl.py": {
-    "mtime": 1788884586.829276,
-    "ast_hash": "feafe0859a14a74c68238418f109f7ef",
-    "semantic_hash": "feafe0859a14a74c68238418f109f7ef"
+    "mtime": 1788948594.939691,
+    "ast_hash": "d540ccf62d6f96b7ab926a47cf697b03",
+    "semantic_hash": "d540ccf62d6f96b7ab926a47cf697b03"
   },
   "src/om_harness/ui/slash.py": {
-    "mtime": 1788777728.9820316,
-    "ast_hash": "7d0836d9f7a534dc1d0212d7b085b872",
-    "semantic_hash": "7d0836d9f7a534dc1d0212d7b085b872"
+    "mtime": 1788949023.195851,
+    "ast_hash": "b49f7a6ff52c7339b5d0eb74ee8750ff",
+    "semantic_hash": "b49f7a6ff52c7339b5d0eb74ee8750ff"
   },
   "src/om_harness/ui/terminal.py": {
     "mtime": 1788631862.74211,
@@ -335,9 +335,9 @@
     "semantic_hash": "190b2c4af07f6021d870579ec8b1e11f"
   },
   "tests/unit/test_context.py": {
-    "mtime": 1788737909.8467638,
-    "ast_hash": "7e75c2cdb452104059904532a4039570",
-    "semantic_hash": "7e75c2cdb452104059904532a4039570"
+    "mtime": 1788948744.5693967,
+    "ast_hash": "e967e7c8db017937d32bfc5198e8ac5e",
+    "semantic_hash": "e967e7c8db017937d32bfc5198e8ac5e"
   },
   "tests/unit/test_entry_point.py": {
     "mtime": 1788633752.0257957,
@@ -390,9 +390,9 @@
     "semantic_hash": "84700a5090922ca0c55bd7adb911ba78"
   },
   "tests/unit/test_repl.py": {
-    "mtime": 1788882603.0452085,
-    "ast_hash": "502efa6c7d9e1e6b72bb0a6da4c6848a",
-    "semantic_hash": "502efa6c7d9e1e6b72bb0a6da4c6848a"
+    "mtime": 1788949023.1968553,
+    "ast_hash": "bb70446c11a017049ff5e02262cd4068",
+    "semantic_hash": "bb70446c11a017049ff5e02262cd4068"
   },
   "tests/unit/test_runner.py": {
     "mtime": 1788649621.858418,
