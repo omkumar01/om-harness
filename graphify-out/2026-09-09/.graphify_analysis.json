@@ -452,7 +452,6 @@
       "src_om_harness_tools_git_gitshow",
       "src_om_harness_tools_git_gitshow_run",
       "src_om_harness_tools_git_gitshowargs",
-      "src_om_harness_tools_git_gitstatus",
       "src_om_harness_tools_git_gitstatus_run",
       "src_om_harness_tools_git_gitstatusargs",
       "src_om_harness_tools_git_gittool",
@@ -461,13 +460,9 @@
       "src_om_harness_tools_git_py_basemodel",
       "src_om_harness_tools_git_rationale_1",
       "src_om_harness_tools_git_rationale_21",
-      "src_om_harness_tools_init",
-      "src_om_harness_tools_init_rationale_1",
       "tests_unit_test_tools_system_test_git_add_and_commit",
       "tests_unit_test_tools_system_test_git_diff_and_log",
-      "tests_unit_test_tools_system_test_git_restore_is_destructive",
-      "tests_unit_test_tools_system_test_git_status_clean",
-      "tests_unit_test_tools_system_test_git_status_shows_dirty"
+      "tests_unit_test_tools_system_test_git_restore_is_destructive"
     ],
     "10": [
       "src_om_harness_runtime_agent_agentfactory_bridge_tool",
@@ -565,8 +560,6 @@
     "13": [
       "src_om_harness_tools_base_rationale_49",
       "src_om_harness_tools_base_toolcontext",
-      "src_om_harness_tools_init_build_default_registry",
-      "src_om_harness_tools_init_rationale_14",
       "src_om_harness_tools_shell_runshell",
       "tests_unit_test_shell_pipes",
       "tests_unit_test_shell_pipes_ctx",
@@ -780,11 +773,7 @@
       "tests_unit_test_providers_test_registry_selects_first_available_provider_and_requires_one_for_default"
     ],
     "21": [
-      "src_om_harness_tools_shell_build_env",
-      "src_om_harness_tools_shell_py_any",
-      "src_om_harness_tools_shell_rationale_56",
-      "src_om_harness_tools_shell_rationale_80",
-      "src_om_harness_tools_shell_run_process",
+      "src_om_harness_tools_git_gitstatus",
       "src_om_harness_tools_testing",
       "src_om_harness_tools_testing_detect_test_runner",
       "src_om_harness_tools_testing_py_basemodel",
@@ -800,6 +789,8 @@
       "tests_unit_test_tools_system_py_any",
       "tests_unit_test_tools_system_rationale_1",
       "tests_unit_test_tools_system_repo",
+      "tests_unit_test_tools_system_test_git_status_clean",
+      "tests_unit_test_tools_system_test_git_status_shows_dirty",
       "tests_unit_test_tools_system_test_run_shell_timeout",
       "tests_unit_test_tools_system_test_run_tests_no_runner_detected",
       "tests_unit_test_tools_system_test_run_tests_with_pytest"
@@ -894,30 +885,16 @@
       "tests_unit_test_web_test_status_and_sessions"
     ],
     "26": [
-      "src_om_harness_providers_models_json_load_models_json",
-      "src_om_harness_providers_models_json_py_path",
-      "src_om_harness_providers_models_json_rationale_242",
       "tests_unit_test_models_json",
       "tests_unit_test_models_json_load_config_from_dict",
-      "tests_unit_test_models_json_py_any",
-      "tests_unit_test_models_json_py_monkeypatch",
       "tests_unit_test_models_json_rationale_1",
       "tests_unit_test_models_json_rationale_112",
       "tests_unit_test_models_json_registry",
-      "tests_unit_test_models_json_repo_with_models_json",
       "tests_unit_test_models_json_test_builtin_name_collision_rejected",
       "tests_unit_test_models_json_test_custom_availability_inline_or_env_or_local",
       "tests_unit_test_models_json_test_custom_provider_names_and_summaries_are_sorted_and_json_ready",
-      "tests_unit_test_models_json_test_doctor_reports_models_json",
-      "tests_unit_test_models_json_test_doctor_without_models_json_is_ok",
       "tests_unit_test_models_json_test_duplicate_model_ids_rejected",
-      "tests_unit_test_models_json_test_harness_wires_custom_providers",
       "tests_unit_test_models_json_test_inline_api_key_flow",
-      "tests_unit_test_models_json_test_inline_api_key_redacted_from_events",
-      "tests_unit_test_models_json_test_loader_env_path_wins",
-      "tests_unit_test_models_json_test_loader_finds_repo_root_models_json",
-      "tests_unit_test_models_json_test_loader_invalid_json_raises",
-      "tests_unit_test_models_json_test_loader_missing_file_returns_none",
       "tests_unit_test_models_json_test_make_model_builds_openai_compatible_client",
       "tests_unit_test_models_json_test_make_model_builds_openai_responses_client",
       "tests_unit_test_models_json_test_make_model_respects_per_model_url_override",
@@ -947,19 +924,8 @@
       "src_om_harness_config_paths_user_home",
       "src_om_harness_config_paths_user_models_json",
       "src_om_harness_config_paths_user_skills_dir",
-      "tests_unit_test_paths",
-      "tests_unit_test_paths_home",
-      "tests_unit_test_paths_py_any",
-      "tests_unit_test_paths_py_monkeypatch",
-      "tests_unit_test_paths_rationale_1",
       "tests_unit_test_paths_test_ensure_user_dirs_creates_layout_and_detects_first_run",
-      "tests_unit_test_paths_test_layout_paths",
-      "tests_unit_test_paths_test_user_home_defaults_to_dot_om_harness",
-      "tests_unit_test_paths_test_user_home_honors_env_override",
-      "tests_unit_test_paths_test_user_plugins_dir_defaults_under_om_harness_home",
-      "tests_unit_test_paths_test_user_plugins_dir_honors_env_override",
-      "tests_unit_test_paths_test_user_skills_dir_defaults_to_dot_agents_skills",
-      "tests_unit_test_paths_test_user_skills_dir_honors_env_override"
+      "tests_unit_test_paths_test_layout_paths"
     ],
     "28": [
       "src_om_harness_config_loader_rationale_92",
@@ -1202,13 +1168,18 @@
     ],
     "40": [
       "src_om_harness_tools_shell",
+      "src_om_harness_tools_shell_build_env",
       "src_om_harness_tools_shell_find_unquoted_metachar",
       "src_om_harness_tools_shell_parse_stage",
+      "src_om_harness_tools_shell_py_any",
       "src_om_harness_tools_shell_py_basemodel",
       "src_om_harness_tools_shell_rationale_1",
       "src_om_harness_tools_shell_rationale_129",
       "src_om_harness_tools_shell_rationale_159",
       "src_om_harness_tools_shell_rationale_178",
+      "src_om_harness_tools_shell_rationale_56",
+      "src_om_harness_tools_shell_rationale_80",
+      "src_om_harness_tools_shell_run_process",
       "src_om_harness_tools_shell_runshell_run",
       "src_om_harness_tools_shell_runshellargs",
       "src_om_harness_tools_shell_split_pipeline",
@@ -1317,6 +1288,10 @@
       "src_om_harness_tools_envinfo_repoinfo",
       "src_om_harness_tools_envinfo_repoinfo_run",
       "src_om_harness_tools_envinfo_repoinfoargs",
+      "src_om_harness_tools_init",
+      "src_om_harness_tools_init_build_default_registry",
+      "src_om_harness_tools_init_rationale_1",
+      "src_om_harness_tools_init_rationale_14",
       "tests_unit_test_tools_system_test_repo_info"
     ],
     "47": [
@@ -1352,6 +1327,22 @@
       "src_om_harness_providers_registry_rationale_257",
       "src_om_harness_providers_registry_rationale_39",
       "src_om_harness_providers_registry_rationale_87"
+    ],
+    "49": [
+      "src_om_harness_providers_models_json_load_models_json",
+      "src_om_harness_providers_models_json_py_path",
+      "src_om_harness_providers_models_json_rationale_242",
+      "tests_unit_test_models_json_py_any",
+      "tests_unit_test_models_json_py_monkeypatch",
+      "tests_unit_test_models_json_repo_with_models_json",
+      "tests_unit_test_models_json_test_doctor_reports_models_json",
+      "tests_unit_test_models_json_test_doctor_without_models_json_is_ok",
+      "tests_unit_test_models_json_test_harness_wires_custom_providers",
+      "tests_unit_test_models_json_test_inline_api_key_redacted_from_events",
+      "tests_unit_test_models_json_test_loader_env_path_wins",
+      "tests_unit_test_models_json_test_loader_finds_repo_root_models_json",
+      "tests_unit_test_models_json_test_loader_invalid_json_raises",
+      "tests_unit_test_models_json_test_loader_missing_file_returns_none"
     ],
     "50": [
       "tests_unit_test_user_config",
@@ -1421,6 +1412,19 @@
       "tests_e2e_test_coding_flow_test_parallel_plan_fans_out_and_aggregates",
       "tests_e2e_test_coding_flow_test_resume_after_interrupted_session",
       "tests_e2e_test_coding_flow_test_state_dir_is_gitignored"
+    ],
+    "55": [
+      "tests_unit_test_paths",
+      "tests_unit_test_paths_home",
+      "tests_unit_test_paths_py_any",
+      "tests_unit_test_paths_py_monkeypatch",
+      "tests_unit_test_paths_rationale_1",
+      "tests_unit_test_paths_test_user_home_defaults_to_dot_om_harness",
+      "tests_unit_test_paths_test_user_home_honors_env_override",
+      "tests_unit_test_paths_test_user_plugins_dir_defaults_under_om_harness_home",
+      "tests_unit_test_paths_test_user_plugins_dir_honors_env_override",
+      "tests_unit_test_paths_test_user_skills_dir_defaults_to_dot_agents_skills",
+      "tests_unit_test_paths_test_user_skills_dir_honors_env_override"
     ],
     "56": [
       "scripts_demo",
@@ -1640,11 +1644,11 @@
     "6": 0.1,
     "7": 0.09915966386554621,
     "8": 0.1092436974789916,
-    "9": 0.1092436974789916,
+    "9": 0.11954022988505747,
     "10": 0.16995073891625614,
     "11": 0.11822660098522167,
     "12": 0.12315270935960591,
-    "13": 0.13333333333333333,
+    "13": 0.1477832512315271,
     "14": 0.11375661375661375,
     "15": 0.1396011396011396,
     "16": 0.12,
@@ -1652,13 +1656,13 @@
     "18": 0.13438735177865613,
     "19": 0.11428571428571428,
     "20": 0.15714285714285714,
-    "21": 0.1383399209486166,
+    "21": 0.14761904761904762,
     "22": 0.22857142857142856,
     "23": 0.14210526315789473,
     "24": 0.20526315789473684,
     "25": 0.14736842105263157,
-    "26": 0.1140819964349376,
-    "27": 0.14482758620689656,
+    "26": 0.17894736842105263,
+    "27": 0.2046783625730994,
     "28": 0.15204678362573099,
     "29": 0.14035087719298245,
     "30": 0.13725490196078433,
@@ -1671,20 +1675,22 @@
     "37": 0.14705882352941177,
     "38": 0.16911764705882354,
     "39": 0.19117647058823528,
-    "40": 0.22727272727272727,
+    "40": 0.16176470588235295,
     "41": 0.17647058823529413,
     "42": 0.125,
     "43": 0.23333333333333334,
     "44": 0.20833333333333334,
     "45": 0.13333333333333333,
-    "46": 0.19696969696969696,
+    "46": 0.15833333333333333,
     "47": 0.1619047619047619,
     "48": 0.17142857142857143,
+    "49": 0.2087912087912088,
     "50": 0.3333333333333333,
     "51": 0.19696969696969696,
     "52": 0.22727272727272727,
     "53": 0.23636363636363636,
     "54": 0.3090909090909091,
+    "55": 0.34545454545454546,
     "56": 0.3611111111111111,
     "57": 0.3333333333333333,
     "58": 0.3333333333333333,
@@ -1831,41 +1837,8 @@
       "why": "connects across different repos/directories; bridges separate communities; peripheral node `test_defaults()` unexpectedly reaches hub `HarnessConfig`"
     }
   ],
-  "questions": [
-    {
-      "type": "bridge_node",
-      "question": "Why does `ChatRepl` connect `ChatRepl` to `test_repl.py`, `._cmd_output`, `.run_turn`, `.__init__`, `._show_file_change`, `._pin_bar_setup`, `repl.py`, `TaskType`, `app.py`, `Any`, `paths.py`, `.run_forever`, `._status_bar`?",
-      "why": "High betweenness centrality (0.144) - this node is a cross-community bridge."
-    },
-    {
-      "type": "bridge_node",
-      "question": "Why does `Harness` connect `Harness` to `harness.py`, `.__init__`, `plugins/__init__.py`, `Task`, `ContextAssembler`, `runner.py`, `EventType`, `EventBus`, `LocalStore`, `RepoIndex`, `TaskType`, `app.py`, `ApprovalEngine`, `DoctorReport`, `ProviderRegistry`, `Any`, `test_harness.py`, `server.py`, `test_models_json.py`, `ModelRouter`, `apply_config_update`, `TaskResult`, `_build_harness`, `test_coding_flow.py`, `demo`, `test_local_gateway.py`, `test_model_selection.py`?",
-      "why": "High betweenness centrality (0.109) - this node is a cross-community bridge."
-    },
-    {
-      "type": "bridge_node",
-      "question": "Why does `EventBus` connect `EventBus` to `harness.py`, `.__init__`, `plugins/__init__.py`, `Task`, `test_runner.py`, `runner.py`, `EventType`, `TaskResult`, `ApprovalEngine`, `DoctorReport`, `test_approval.py`, `Harness`, `test_session_manager.py`?",
-      "why": "High betweenness centrality (0.055) - this node is a cross-community bridge."
-    },
-    {
-      "type": "verify_inferred",
-      "question": "Are the 7 inferred relationships involving `ChatRepl` (e.g. with `_FakeSession` and `_TurnWatcher`) actually correct?",
-      "why": "`ChatRepl` has 7 INFERRED edges - model-reasoned connections that need verification."
-    },
-    {
-      "type": "verify_inferred",
-      "question": "Are the 36 inferred relationships involving `Harness` (e.g. with `ApprovalPolicy` and `HarnessConfig`) actually correct?",
-      "why": "`Harness` has 36 INFERRED edges - model-reasoned connections that need verification."
-    },
-    {
-      "type": "verify_inferred",
-      "question": "Are the 20 inferred relationships involving `EventBus` (e.g. with `DoctorItem` and `DoctorReport`) actually correct?",
-      "why": "`EventBus` has 20 INFERRED edges - model-reasoned connections that need verification."
-    },
-    {
-      "type": "verify_inferred",
-      "question": "Are the 15 inferred relationships involving `Task` (e.g. with `DoctorItem` and `DoctorReport`) actually correct?",
-      "why": "`Task` has 15 INFERRED edges - model-reasoned connections that need verification."
-    }
-  ]
+  "tokens": {
+    "input": 0,
+    "output": 0
+  }
 }

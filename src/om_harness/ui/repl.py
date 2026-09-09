@@ -268,6 +268,9 @@ class ChatRepl:
             if self.plan_mode and _PLAN_APPROVAL_RE.match(text.strip().lower()):
                 # Approval lifts the read-only policy; the message itself is
                 # what the agent should implement, so let it fall through.
+                # But first, include the plan from the last assistant message
+                # so the agent knows what to implement.
+                text = self._prepend_plan_context(text)
                 self._exit_plan_mode()
             if text.startswith("/") and self._slash_command(text.strip()):
                 continue
@@ -957,6 +960,21 @@ class ChatRepl:
         self.harness.assembler.plan_mode = False
         self.plan_mode = False
         self.renderer.info(f"plan mode off — approval mode: {mode_glyph(self.mode)}")
+
+    def _prepend_plan_context(self, approval_text: str) -> str:
+        """Prepend the last assistant message (the plan) to the approval.
+
+        This ensures the agent has the plan context when implementing.
+        """
+        session = self.harness.store.load_session(self.session_id)
+        if not session:
+            return approval_text
+        # Find the last assistant message
+        for msg in reversed(session.messages):
+            if msg.role.value == "assistant" and msg.content.strip():
+                plan = msg.content.strip()
+                return f"Plan from previous turn:\n{plan}\n\n---\nUser approval: {approval_text}"
+        return approval_text
 
     # -- slash commands ------------------------------------------------------
 
