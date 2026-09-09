@@ -15,6 +15,8 @@ import shutil
 import sys
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from rich.markup import escape
@@ -954,12 +956,40 @@ class ChatRepl:
         )
 
     def _exit_plan_mode(self) -> None:
+        # Save the plan before exiting
+        self._save_plan_to_file()
         if self._saved_approval_policy is not None:
             self.harness.config.approval.policy = self._saved_approval_policy
         self._saved_approval_policy = None
         self.harness.assembler.plan_mode = False
         self.plan_mode = False
         self.renderer.info(f"plan mode off — approval mode: {mode_glyph(self.mode)}")
+
+    def _save_plan_to_file(self) -> None:
+        """Save the last assistant message (the plan) to .om-harness/plans/plan<N>.md."""
+        session = self.harness.store.load_session(self.session_id)
+        if not session:
+            return
+        # Find the last assistant message with content
+        plan = None
+        for msg in reversed(session.messages):
+            if msg.role.value == "assistant" and msg.content.strip():
+                plan = msg.content.strip()
+                break
+        if not plan:
+            return
+        # Determine the next plan file number
+        plans_dir = Path(self.harness.repo_root) / ".om-harness" / "plans"
+        plans_dir.mkdir(parents=True, exist_ok=True)
+        existing = list(plans_dir.glob("plan*.md"))
+        counter = len(existing) + 1
+        plan_file = plans_dir / f"plan{counter}.md"
+        # Write the plan with a header
+        header = f"# Plan {counter}\n\n"
+        header += f"Session: {self.session_id}\n"
+        header += f"Date: {datetime.now().isoformat()}\n\n"
+        plan_file.write_text(header + plan, encoding="utf-8")
+        self.renderer.info(f"plan saved to {plan_file.relative_to(self.harness.repo_root)}")
 
     def _prepend_plan_context(self, approval_text: str) -> str:
         """Prepend the last assistant message (the plan) to the approval.
