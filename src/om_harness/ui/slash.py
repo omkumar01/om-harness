@@ -26,6 +26,9 @@ COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("model", "Pick or set the active model", "[provider:model]"),
     SlashCommand("thinking", "Show or set the thinking level", "[off|low|medium|high]"),
     SlashCommand("mode", "Cycle approval mode (ask / auto / deny)"),
+    SlashCommand(
+        "plan", "Toggle plan mode (read-only research, then approve to implement)", "[on|off]"
+    ),
     SlashCommand("config", "Show or change configuration", "[set <key> <value>]"),
     SlashCommand(
         "timeout", "Show or set timeouts (agent turn / tool call)", "[agent|tool] <seconds|off>"
@@ -78,6 +81,8 @@ MODE_GLYPHS: dict[str, str] = {
     "deny": "⛔ deny",
     "allowlist": "⏵ list",
 }
+
+PLAN_GLYPH = "⏸ plan"
 
 THINKING_GLYPHS: dict[str, str] = {
     "off": "◌ thinking",
@@ -170,6 +175,8 @@ class SlashCompleter(Completer):
                 ("tool", "per-tool-call timeout"),
                 ("off", "disable timeouts"),
             ]
+        elif command.name == "plan":
+            candidates = [("on", "enter plan mode"), ("off", "leave plan mode")]
         elif command.name == "config":
             candidates = [
                 ("model", "default model"),

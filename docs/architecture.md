@@ -321,12 +321,25 @@ off`) disables them — `None` in the config, which `asyncio.timeout` and
 `wait_for` treat as "no timeout". Tool timeouts propagate immediately
 through the shared live `ToolContext`.
 
+`/plan [on|off]` toggles plan mode. Entering it swaps the approval policy
+to `deny` (saved first, restored on exit; read-only tools still pass) and
+sets a flag on the `ContextAssembler` that appends a plan-mode instruction
+to every system prompt: research read-only and propose an implementation
+plan instead of changing files. While plan mode owns the policy, `/mode`
+and Shift+Tab are ignored with a warning. A message starting with an
+approval phrase (`approve`, `go ahead`, `implement`, `proceed`, `lgtm`,
+`looks good`, `ship it`) exits plan mode — restoring the previous policy —
+and the message itself is sent on to the agent as the implementing
+instruction.
+
 Because the prompt's `bottom_toolbar` only renders while the prompt is
-active, the REPL pins it during turns with a minimal prompt_toolkit app
-(toolbar only) run under `patch_stdout`, so streaming output scrolls
-*above* the bar instead of erasing it; Ctrl+C inside that app cancels the
-turn. Wherever a second app cannot run (tests, non-TTY output, exotic
-terminals) this degrades to the previous plain-await behavior.
+active, the REPL pins the bar during turns with a terminal VT scroll
+region (cursor save/restore plus a repaint tick), so streaming output
+scrolls *above* the bar instead of erasing it; Ctrl+C during the turn
+cancels it. Windows consoles get VT processing enabled (and restored)
+around the turn. Wherever VT sequences are unavailable (tests, non-TTY
+output, exotic terminals) this degrades to plain streaming without a
+pinned bar.
 
 ## Testing strategy
 

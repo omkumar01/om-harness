@@ -245,6 +245,14 @@ custom OpenAI-compatible endpoint to `~/.om-harness/config/models.json`),
 model selection, approval mode, verbosity, and thinking level — everything
 persists to `~/.om-harness/`.
 
+`/plan [on|off]` toggles **plan mode**: the agent researches the repository
+with read-only tools only (edits, shell commands, and commits are blocked) and
+proposes an implementation plan instead of making changes. While plan mode is
+active the status bar shows `⏸ plan`, and `/mode` / Shift+Tab are disabled
+until you leave it. When the plan looks right, reply `approve` (or `go ahead`,
+`implement`, …) — plan mode exits, your previous approval mode is restored,
+and the same message is sent to the agent to implement.
+
 `/timeout` shows the current agent (whole-turn) and tool (per-call)
 timeouts; `/timeout agent 300`, `/timeout tool off`, or `/timeout off`
 (disable both) change them live and persist to

@@ -602,3 +602,119 @@ def test_cancelled_chat_turn_reports_interrupted(
     monkeypatch.setattr(harness, "chat_turn", cancelled)
     repl.run_turn("hello")
     assert "turn interrupted" in capsys.readouterr().out
+
+
+# -- plan mode -----------------------------------------------------------------
+
+
+class _FakePromptSession:
+    """Feeds queued lines to run_forever, then ends the session."""
+
+    def __init__(self, lines: list[str]) -> None:
+        self.lines = list(lines)
+
+    def prompt(self, *args: Any, **kwargs: Any) -> str:
+        if not self.lines:
+            raise EOFError
+        return self.lines.pop(0)
+
+
+def test_slash_plan_toggles_and_restores_policy(tmp_path: Any, home: Any, capsys: Any) -> None:
+    repl, harness = _repl(tmp_path, home)
+    original = harness.config.approval.policy
+    assert original != "deny"
+
+    assert repl._slash_command("/plan")
+    assert repl.plan_mode is True
+    assert harness.config.approval.policy == "deny"
+    assert harness.assembler.plan_mode is True
+    assert "plan mode on" in capsys.readouterr().out
+
+    assert repl._slash_command("/plan off")
+    assert repl.plan_mode is False
+    assert harness.config.approval.policy == original
+    assert harness.assembler.plan_mode is False
+
+
+def test_slash_plan_no_args_toggles_off(tmp_path: Any, home: Any, capsys: Any) -> None:
+    repl, harness = _repl(tmp_path, home)
+    original = harness.config.approval.policy
+    assert repl._slash_command("/plan")
+    assert repl._slash_command("/plan")
+    assert repl.plan_mode is False
+    assert harness.config.approval.policy == original
+
+
+def test_slash_plan_rejects_bad_arg(tmp_path: Any, home: Any, capsys: Any) -> None:
+    repl, harness = _repl(tmp_path, home)
+    assert repl._slash_command("/plan maybe")
+    assert repl.plan_mode is False
+    assert harness.config.approval.policy != "deny"
+    assert "usage: /plan" in capsys.readouterr().out
+
+
+def test_plan_mode_blocks_slash_mode(tmp_path: Any, home: Any, capsys: Any) -> None:
+    repl, harness = _repl(tmp_path, home)
+    repl._slash_command("/plan")
+    assert repl._slash_command("/mode")
+    assert harness.config.approval.policy == "deny"  # unchanged by /mode
+    assert "plan mode is active" in capsys.readouterr().out
+
+
+def test_plan_mode_shows_glyph_in_prompt_and_status_bar(tmp_path: Any, home: Any) -> None:
+    repl, _ = _repl(tmp_path, home)
+    assert "⏸ plan" not in repl._prompt_message()
+    repl._slash_command("/plan")
+    assert "⏸ plan" in repl._prompt_message()
+    assert "⏸ plan" in repl._status_bar()
+
+
+def _run_forever_with_lines(
+    repl: ChatRepl, lines: list[str], sent: list[str], monkeypatch: Any
+) -> None:
+    monkeypatch.setattr(repl, "_make_prompt_session", lambda: _FakePromptSession(lines))
+    monkeypatch.setattr(repl, "run_turn", lambda text: sent.append(text))
+    repl.run_forever()
+
+
+def test_approval_message_exits_plan_mode_and_implements(
+    tmp_path: Any, home: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    repl, harness = _repl(tmp_path, home)
+    original = harness.config.approval.policy
+    repl._slash_command("/plan")
+    capsys.readouterr()
+
+    sent: list[str] = []
+    _run_forever_with_lines(repl, ["approve"], sent, monkeypatch)
+
+    assert sent == ["approve"]  # the message itself drives implementation
+    assert repl.plan_mode is False
+    assert harness.config.approval.policy == original
+    assert "plan mode off" in capsys.readouterr().out
+
+
+def test_approval_variants_exit_plan_mode(tmp_path: Any, home: Any, monkeypatch: Any) -> None:
+    for phrase in ("approved", "go ahead", "implement", "proceed", "lgtm"):
+        repl, harness = _repl(tmp_path, home)
+        repl._slash_command("/plan")
+        sent: list[str] = []
+        _run_forever_with_lines(repl, [phrase], sent, monkeypatch)
+        assert sent == [phrase], phrase
+        assert repl.plan_mode is False, phrase
+        assert harness.config.approval.policy != "deny", phrase
+
+
+def test_non_approval_message_keeps_plan_mode(
+    tmp_path: Any, home: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    repl, harness = _repl(tmp_path, home)
+    repl._slash_command("/plan")
+    capsys.readouterr()
+
+    sent: list[str] = []
+    _run_forever_with_lines(repl, ["investigate why the tests fail"], sent, monkeypatch)
+
+    assert sent == ["investigate why the tests fail"]
+    assert repl.plan_mode is True
+    assert harness.config.approval.policy == "deny"

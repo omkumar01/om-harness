@@ -5,6 +5,32 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-09-09
+
+### Added
+
+- **`/plan` slash command** (plan mode): toggles read-only research mode — the
+  approval policy is temporarily forced to `deny` (edits, shell commands, and
+  commits are blocked while read-only tools stay available) and the agent is
+  instructed to propose an implementation plan instead of making changes. The
+  status bar and prompt show a `⏸ plan` glyph; `/mode` and Shift+Tab are
+  guarded while active. Replying with an approval phrase (`approve`, `go
+  ahead`, `implement`, `proceed`, `lgtm`, `looks good`, `ship it`) exits plan
+  mode, restores the previous approval mode, and sends the message to the
+  agent for implementation.
+- GitHub issue forms for bug reports and feature requests.
+
+### Fixed
+
+- The pinned status bar during turns now uses a terminal VT scroll region
+  instead of running a second prompt_toolkit app, removing flicker and the
+  second-app failure modes on exotic terminals; non-VT terminals fall back to
+  the plain streaming behavior.
+- Guarded the Windows console VT-mode restore behind a `win32` check so Linux
+  mypy runs pass.
+- Tests use a plain placeholder API key in the responses client test instead
+  of a real-looking one.
+
 ## [1.0.0] - 2026-09-07
 
 First stable release of the om-harness coding-agent harness.

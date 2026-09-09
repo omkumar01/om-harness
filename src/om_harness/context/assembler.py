@@ -47,6 +47,16 @@ ROLE_PROMPTS: dict[str, str] = {
     "chat": ("Role: assistant. Help the developer with their repository interactively."),
 }
 
+# Appended to every role prompt while plan mode is active in the REPL. Tool
+# gating (approval policy = deny) enforces the read-only part; this prompt
+# tells the agent what to produce instead.
+PLAN_MODE_PROMPT = (
+    "Mode: plan. Research the repository with read-only tools and propose a "
+    "concise implementation plan: files to change, steps in order, and risks. "
+    "Do not modify files, run mutating commands, or commit. Stop after the "
+    "plan; the user must approve before any change is made."
+)
+
 
 def render_task_results(results: list[TaskResult]) -> str:
     """Compact, structured rendering of prior agent outputs (no transcripts)."""
@@ -97,6 +107,7 @@ class ContextAssembler:
         self.config = config
         self.repo_index = repo_index
         self.skills: dict[str, Skill] = dict(skills or {})
+        self.plan_mode: bool = False
         self._repo_context_cache: str | None = None
 
     def system_prompt(self, role: str) -> str:
@@ -105,6 +116,8 @@ class ContextAssembler:
         if role_prompt is None:
             role_prompt = ROLE_PROMPTS["chat"]
         prompt = f"{base}\n{role_prompt}"
+        if self.plan_mode:
+            prompt = f"{prompt}\n{PLAN_MODE_PROMPT}"
         skills_section = self._skills_section()
         if skills_section:
             prompt = f"{prompt}\n{skills_section}"
@@ -190,6 +203,7 @@ class ContextAssembler:
 
 
 __all__ = [
+    "PLAN_MODE_PROMPT",
     "ROLE_PROMPTS",
     "AssembledContext",
     "ContextAssembler",

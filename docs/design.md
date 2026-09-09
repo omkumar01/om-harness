@@ -256,4 +256,9 @@ capability), richer memory (checkpoint side-channels), evaluation harness
 (run the same scripted models against suites), team governance (approval
 policies are already a policy object), plugin capabilities beyond skills
 (slash commands, tools, Python entry points — `plugins/` already owns the
-install/discovery lifecycle and the manifest is the versioned seam).
+install/discovery lifecycle and the manifest is the versioned seam). The
+REPL already supports a built-in set of slash commands (`/model`,
+`/thinking`, `/mode`, `/plan`, `/config`, `/timeout`, `/providers`, `/tools`,
+`/skills`, `/skill`, `/plugins`, `/status`, `/sessions`, `/checkpoint`,
+`/setup`, `/verbose`, `/help`, `/exit`); plugin-provided slash commands
+remain a future extension point.

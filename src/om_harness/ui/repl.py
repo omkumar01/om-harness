@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import re
 import shutil
 import sys
 import time
@@ -35,6 +36,7 @@ from om_harness.ui.components import (
     welcome_panel,
 )
 from om_harness.ui.slash import (
+    PLAN_GLYPH,
     SlashCompleter,
     args_hint_for,
     cycle_approval,
@@ -49,6 +51,14 @@ EXIT_COMMANDS = {"exit", "quit", ":q", "q"}
 PUMP_INTERVAL_SECONDS = 0.05
 CONTEXT_BUDGET_TOKENS = 200_000  # gauge ceiling when no budget is configured
 BAR_REFRESH_SECONDS = 1.0  # status bar repaint tick during a turn
+
+# While plan mode is active, a message starting with one of these phrases
+# exits plan mode and the message itself is sent to the agent to implement.
+# Deliberately conservative: a full-sentence request like "look into X" must
+# not accidentally lift the read-only policy.
+_PLAN_APPROVAL_RE = re.compile(
+    r"^(approve[d]?|go ahead|implement|proceed|lgtm|looks good|ship it)\b"
+)
 
 # Raw ANSI used to pin the bar; the terminal must speak VT sequences (we
 # enable that on Windows consoles before writing any of it).
@@ -173,6 +183,8 @@ class ChatRepl:
         self.session_id = session_id
         self.verbosity = verbosity
         self.show_thinking = True
+        self.plan_mode = False
+        self._saved_approval_policy: Any = None
         self.renderer = renderer or TerminalRenderer()
         self.total_usage = TokenUsage()
         self._last_ctrl_c = 0.0
@@ -253,6 +265,10 @@ class ChatRepl:
             if text.strip().lower() in EXIT_COMMANDS:
                 self.renderer.info("bye")
                 return
+            if self.plan_mode and _PLAN_APPROVAL_RE.match(text.strip().lower()):
+                # Approval lifts the read-only policy; the message itself is
+                # what the agent should implement, so let it fall through.
+                self._exit_plan_mode()
             if text.startswith("/") and self._slash_command(text.strip()):
                 continue
             self.run_turn(text)
@@ -338,6 +354,9 @@ class ChatRepl:
             event.current_buffer.insert_text("\n")
 
         def _mode(event: Any) -> None:
+            if repl._plan_mode_blocks("the approval mode"):
+                event.app.invalidate()
+                return
             from om_harness.config.loader import ApprovalPolicy
 
             repl.harness.config.approval.policy = ApprovalPolicy(cycle_approval(repl.mode))
@@ -392,7 +411,12 @@ class ChatRepl:
 
     def _prompt_message(self) -> str:
         provider, model = self._active()
-        header = header_line(provider, model, mode_glyph(self.mode), thinking_glyph(self.thinking))
+        header = header_line(
+            provider,
+            model,
+            PLAN_GLYPH if self.plan_mode else mode_glyph(self.mode),
+            thinking_glyph(self.thinking),
+        )
         return header + "\n│ ❯ "
 
     def _status_bar(self) -> str:
@@ -403,7 +427,7 @@ class ChatRepl:
                 provider,
                 model,
                 self.thinking,
-                mode_glyph(self.mode),
+                PLAN_GLYPH if self.plan_mode else mode_glyph(self.mode),
                 self._context_used(),
                 self._context_max(),
                 hint=hint,
@@ -890,6 +914,50 @@ class ChatRepl:
         else:
             self._print_command_output(run)
 
+    # -- plan mode ------------------------------------------------------------
+
+    def _plan_mode_blocks(self, what: str) -> bool:
+        """True (after warning) when plan mode owns the thing being changed."""
+        if not self.plan_mode:
+            return False
+        self.renderer.line(
+            DisplayLine(
+                level=LineLevel.warn,
+                icon="⏸",
+                text=f"plan mode is active — /plan off first to change {what}",
+            )
+        )
+        return True
+
+    def _cmd_plan(self, args: list[str]) -> None:
+        arg = args[0].lower() if args else ""
+        if arg == "on" or (not arg and not self.plan_mode):
+            self._enter_plan_mode()
+        elif arg == "off" or (not arg and self.plan_mode):
+            self._exit_plan_mode()
+        else:
+            self.renderer.error("usage: /plan [on|off]")
+
+    def _enter_plan_mode(self) -> None:
+        from om_harness.config.loader import ApprovalPolicy
+
+        self._saved_approval_policy = self.harness.config.approval.policy
+        self.harness.config.approval.policy = ApprovalPolicy.deny
+        self.harness.assembler.plan_mode = True
+        self.plan_mode = True
+        self.renderer.info(
+            "plan mode on — read-only research; the agent proposes a plan, "
+            "then reply 'approve' to implement"
+        )
+
+    def _exit_plan_mode(self) -> None:
+        if self._saved_approval_policy is not None:
+            self.harness.config.approval.policy = self._saved_approval_policy
+        self._saved_approval_policy = None
+        self.harness.assembler.plan_mode = False
+        self.plan_mode = False
+        self.renderer.info(f"plan mode off — approval mode: {mode_glyph(self.mode)}")
+
     # -- slash commands ------------------------------------------------------
 
     def _slash_command(self, text: str) -> bool:
@@ -917,10 +985,14 @@ class ChatRepl:
                     "/thinking <level> or Ctrl+T changes it)"
                 )
         elif command == "mode":
+            if self._plan_mode_blocks("the approval mode"):
+                return True
             from om_harness.config.loader import ApprovalPolicy
 
             self.harness.config.approval.policy = ApprovalPolicy(cycle_approval(self.mode))
             self.renderer.info(f"approval mode: {mode_glyph(self.mode)}")
+        elif command == "plan":
+            self._cmd_plan(args)
         elif command == "config":
             self._cmd_config(args)
         elif command == "timeout":
@@ -962,6 +1034,7 @@ class ChatRepl:
                     "model",
                     "thinking",
                     "mode",
+                    "plan",
                     "config",
                     "timeout",
                     "providers",

@@ -178,3 +178,22 @@ def test_context_report_accounts_for_components(tmp_path: Any) -> None:
     assert report.items.get("repo_context", 0) > 0
     assert report.items.get("user_prompt", 0) > 0
     assert report.total_tokens == sum(report.items.values())
+
+
+# -- plan mode -----------------------------------------------------------------
+
+
+def test_plan_mode_prompt_injected_only_when_active() -> None:
+    assembler = ContextAssembler(config=HarnessConfig())
+    assert "Mode: plan" not in assembler.system_prompt("implementer")
+    assembler.plan_mode = True
+    prompt = assembler.system_prompt("implementer")
+    assert "Mode: plan" in prompt
+    assert "Do not modify files" in prompt
+    # Role prompt is still present alongside the plan-mode addition.
+    assert "Role: implementer" in prompt
+
+
+def test_plan_mode_prompt_defaults_off_for_new_assembler() -> None:
+    assembler = ContextAssembler(config=HarnessConfig())
+    assert assembler.plan_mode is False
