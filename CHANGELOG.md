@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ahead`, `implement`, `proceed`, `lgtm`, `looks good`, `ship it`) exits plan
   mode, restores the previous approval mode, and sends the message to the
   agent for implementation.
+- **Plan persistence**: when approving a plan, the plan is automatically saved
+  to `<repo>/.om-harness/plans/plan<N>.md` with session ID and timestamp.
 - GitHub issue forms for bug reports and feature requests.
 
 ### Fixed
@@ -30,6 +32,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mypy runs pass.
 - Tests use a plain placeholder API key in the responses client test instead
   of a real-looking one.
+- **Status bar drawn inline over the streamed thinking text**: the turn ran a
+  second prompt_toolkit app whose repaints raced the streamed writes, so on
+  some terminals (notably Windows) the bar was painted mid-stream, right after
+  the last streamed character. The pin no longer uses a second app at all:
+  scrolling is confined to rows 1..H-1 (DECSTBM scroll region, enabled with
+  VT processing on Windows) and the bar is repainted on the reserved bottom
+  row each tick, so the stream scrolls above it with no cursor tracking. Falls
+  back to plain await (no bar) on non-TTY output or terminals without VT
+  sequences.
+
 
 ## [1.0.0] - 2026-09-07
 
@@ -78,18 +90,5 @@ First stable release of the om-harness coding-agent harness.
   `patch_stdout` so output scrolls above the bar; fails safely back to the
   previous plain-await behavior on non-TTY or unsupported terminals.
 
-## [Unreleased]
-
-### Fixed
-
-- **Status bar drawn inline over the streamed thinking text**: the turn ran a
-  second prompt_toolkit app whose repaints raced the streamed writes, so on
-  some terminals (notably Windows) the bar was painted mid-stream, right after
-  the last streamed character. The pin no longer uses a second app at all:
-  scrolling is confined to rows 1..H-1 (DECSTBM scroll region, enabled with
-  VT processing on Windows) and the bar is repainted on the reserved bottom
-  row each tick, so the stream scrolls above it with no cursor tracking. Falls
-  back to plain await (no bar) on non-TTY output or terminals without VT
-  sequences.
 
 <!-- Add new entries here, above the latest release. -->
