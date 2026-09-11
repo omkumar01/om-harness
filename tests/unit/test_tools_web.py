@@ -1,19 +1,19 @@
-"""Contract tests for fetch_url: URL validation, text extraction, batch sitemap scraping."""
+"""Contract tests for fetch_url and fetch_batch_url: URL validation, text extraction, concurrent fetching."""
 
 from __future__ import annotations
 
 import gzip
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from om_harness.tools.base import Permission, ToolContext, ToolError
 from om_harness.tools.web import (
+    FetchBatchUrl,
     FetchUrl,
     _decompress_response,
     _extract_text,
-    _parse_sitemap,
     _validate_url,
 )
 
@@ -117,103 +117,7 @@ def test_decompress_noop_non_gzip() -> None:
     assert result == raw
 
 
-# -- sitemap parsing ----------------------------------------------------------
-
-
-def test_parse_sitemap_urlset_filters_by_prefix() -> None:
-    sitemap_xml = """<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://example.com/docs/ai/overview</loc></url>
-  <url><loc>https://example.com/docs/ai/setup</loc></url>
-  <url><loc>https://example.com/blog/post1</loc></url>
-  <url><loc>https://example.com/docs/guide/intro</loc></url>
-</urlset>"""
-    # Mock _fetch_url_sync to return the sitemap XML
-    with patch(
-        "om_harness.tools.web._fetch_url_sync",
-        return_value=sitemap_xml,
-    ):
-        urls = _parse_sitemap("https://example.com/sitemap.xml", "/docs/ai", 50)
-    assert len(urls) == 2
-    assert "https://example.com/docs/ai/overview" in urls
-    assert "https://example.com/docs/ai/setup" in urls
-    assert all(u.startswith("https://example.com/docs/ai") for u in urls)
-
-
-def test_parse_sitemap_respects_max_urls() -> None:
-    items = "".join(f"<url><loc>https://example.com/docs/ai/page{i}</loc></url>" for i in range(20))
-    sitemap_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  {items}
-</urlset>"""
-    with patch(
-        "om_harness.tools.web._fetch_url_sync",
-        return_value=sitemap_xml,
-    ):
-        urls = _parse_sitemap("https://example.com/sitemap.xml", "/docs/ai", 5)
-    assert len(urls) == 5
-
-
-def test_parse_sitemap_rejects_doctype() -> None:
-    sitemap_xml = """<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE foo [<!ENTITY xxe "evil">]>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://example.com/docs/ai/page1</loc></url>
-</urlset>"""
-    with (
-        patch(
-            "om_harness.tools.web._fetch_url_sync",
-            return_value=sitemap_xml,
-        ),
-        pytest.raises(ToolError, match="DOCTYPE"),
-    ):
-        _parse_sitemap("https://example.com/sitemap.xml", "/docs/ai", 50)
-
-
-def test_parse_sitemap_handles_sitemapindex() -> None:
-    # A sitemapindex that points to sub-sitemaps
-    index_xml = """<?xml version="1.0" encoding="UTF-8"?>
-<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <sitemap><loc>https://example.com/docs-sitemap.xml</loc></sitemap>
-  <sitemap><loc>https://example.com/blog-sitemap.xml</loc></sitemap>
-</sitemapindex>"""
-    sub_sitemap_xml = """<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://example.com/docs/ai/overview</loc></url>
-  <url><loc>https://example.com/docs/ai/setup</loc></url>
-  <url><loc>https://example.com/blog/post1</loc></url>
-</urlset>"""
-
-    call_count = [0]
-
-    def fake_fetch(url, **kwargs: object):
-        call_count[0] += 1
-        if "sitemap.xml" in url and call_count[0] == 1:
-            return index_xml
-        elif "docs-sitemap" in url:
-            return sub_sitemap_xml
-        else:
-            # blog-sitemap — no matching URLs
-            return """<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-</urlset>"""
-
-    with patch("om_harness.tools.web._fetch_url_sync", side_effect=fake_fetch):
-        urls = _parse_sitemap("https://example.com/sitemap.xml", "/docs/ai", 50)
-    assert len(urls) == 2
-    assert any("docs/ai" in u for u in urls)
-
-
-def test_parse_sitemap_empty_or_error() -> None:
-    with patch(
-        "om_harness.tools.web._fetch_url_sync",
-        side_effect=ToolError("network error"),
-    ):
-        urls = _parse_sitemap("https://example.com/sitemap.xml", "/docs", 50)
-    assert urls == []
-
-
-# -- fetch_url tool (single mode) --------------------------------------------
+# -- fetch_url tool (single mode only) ---------------------------------------
 
 
 @pytest.fixture
@@ -243,9 +147,7 @@ async def test_fetch_url_single_extracts_text(
     monkeypatch.setattr(
         "om_harness.tools.web.urlopen", lambda req, timeout=None: _make_mock_response(html)
     )
-    result = await FetchUrl(ctx).run(
-        FetchUrl.Args(url="https://example.com/page", action="single", max_chars=1000)
-    )
+    result = await FetchUrl(ctx).run(FetchUrl.Args(url="https://example.com/page", max_chars=1000))
     assert result.ok
     assert "Title" in result.output
     assert "Hello world" in result.output
@@ -259,7 +161,7 @@ async def test_fetch_url_single_raw_html(ctx: ToolContext, monkeypatch: pytest.M
         "om_harness.tools.web.urlopen", lambda req, timeout=None: _make_mock_response(html)
     )
     result = await FetchUrl(ctx).run(
-        FetchUrl.Args(url="https://example.com/page", action="single", extract_text=False)
+        FetchUrl.Args(url="https://example.com/page", extract_text=False)
     )
     assert result.ok
     assert "<html>" in result.output
@@ -272,9 +174,7 @@ async def test_fetch_url_single_trims_output(
     monkeypatch.setattr(
         "om_harness.tools.web.urlopen", lambda req, timeout=None: _make_mock_response(html)
     )
-    result = await FetchUrl(ctx).run(
-        FetchUrl.Args(url="https://example.com/page", action="single", max_chars=100)
-    )
+    result = await FetchUrl(ctx).run(FetchUrl.Args(url="https://example.com/page", max_chars=100))
     assert result.ok
     # Output is trimmed to max_chars; truncation notice is appended beyond it.
     assert "truncated" in result.output
@@ -290,9 +190,7 @@ async def test_fetch_url_single_gzip(ctx: ToolContext, monkeypatch: pytest.Monke
     resp = _make_mock_response(compressed, content_type="text/html; charset=utf-8")
     resp.headers["Content-Encoding"] = "gzip"
     monkeypatch.setattr("om_harness.tools.web.urlopen", lambda req, timeout=None: resp)
-    result = await FetchUrl(ctx).run(
-        FetchUrl.Args(url="https://example.com/page", action="single", max_chars=1000)
-    )
+    result = await FetchUrl(ctx).run(FetchUrl.Args(url="https://example.com/page", max_chars=1000))
     assert result.ok
     assert "Hello" in result.output
 
@@ -307,84 +205,174 @@ async def test_fetch_url_rejects_file_scheme(ctx: ToolContext) -> None:
         await FetchUrl(ctx).run(FetchUrl.Args(url="file:///etc/passwd"))
 
 
-# -- fetch_url tool (batch mode) ---------------------------------------------
+# -- fetch_batch_url tool (batch mode) ---------------------------------------
 
 
-async def test_fetch_url_batch_discovers_and_fetches(
+async def test_fetch_batch_url_fetches_multiple(
     ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    sitemap_xml = """<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://example.com/docs/ai/overview</loc></url>
-  <url><loc>https://example.com/docs/ai/setup</loc></url>
-  <url><loc>https://example.com/blog/post1</loc></url>
-</urlset>"""
+    def fake_fetch_one(url: str, max_chars: int, extract_text: bool, timeout: float | None) -> str:
+        if "page1" in url:
+            return "<html><body><p>Page 1 content</p></body></html>"
+        elif "page2" in url:
+            return "<html><body><p>Page 2 content</p></body></html>"
+        elif "page3" in url:
+            return "<html><body><p>Page 3 content</p></body></html>"
+        return "<html><body><p>Other</p></body></html>"
 
-    def fake_urlopen(req, timeout=None):
-        url = req.full_url if hasattr(req, "full_url") else str(req)
-        if "sitemap.xml" in url:
-            return _make_mock_response(sitemap_xml.encode())
-        elif "docs/ai/overview" in url:
-            return _make_mock_response(b"<html><body><p>Overview content</p></body></html>")
-        elif "docs/ai/setup" in url:
-            return _make_mock_response(b"<html><body><p>Setup content</p></body></html>")
-        return _make_mock_response(b"<html><body><p>Other</p></body></html>")
+    monkeypatch.setattr("om_harness.tools.web._fetch_url_sync", fake_fetch_one)
 
-    monkeypatch.setattr("om_harness.tools.web.urlopen", fake_urlopen)
-    result = await FetchUrl(ctx).run(
-        FetchUrl.Args(
-            url="https://example.com/docs/ai",
-            action="batch",
-            max_urls=10,
+    result = await FetchBatchUrl(ctx).run(
+        FetchBatchUrl.Args(
+            urls=[
+                "https://example.com/page1",
+                "https://example.com/page2",
+                "https://example.com/page3",
+            ],
             max_chars=1000,
         )
     )
     assert result.ok
-    assert result.data["action"] == "batch"
-    assert result.data["discovered"] == 2
-    assert result.data["fetched"] == 2
-    assert result.data["succeeded"] == 2
+    assert result.data["total"] == 3
+    assert result.data["succeeded"] == 3
+    assert result.data["failed"] == 0
+    assert len(result.data["results"]) == 3
+    assert all(r["ok"] for r in result.data["results"])
+    assert "Page 1 content" in result.data["results"][0]["text"]
+    assert "Page 2 content" in result.data["results"][1]["text"]
 
 
-async def test_fetch_url_batch_no_sitemap(
+async def test_fetch_batch_url_handles_errors(
     ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        "om_harness.tools.web.urlopen",
-        lambda req, timeout=None: (_ for _ in ()).throw(ToolError("sitemap not found")),
-    )
-    result = await FetchUrl(ctx).run(
-        FetchUrl.Args(url="https://example.com/docs/ai", action="batch", max_urls=10)
+    def fake_fetch_one(url: str, max_chars: int, extract_text: bool, timeout: float | None) -> str:
+        if "fail" in url:
+            raise ToolError("connection refused")
+        return "<html><body><p>Success</p></body></html>"
+
+    monkeypatch.setattr("om_harness.tools.web._fetch_url_sync", fake_fetch_one)
+
+    result = await FetchBatchUrl(ctx).run(
+        FetchBatchUrl.Args(
+            urls=[
+                "https://example.com/success1",
+                "https://example.com/fail1",
+                "https://example.com/success2",
+            ],
+            max_chars=1000,
+        )
     )
     assert result.ok
-    assert "No URLs found" in result.output
+    assert result.data["total"] == 3
+    assert result.data["succeeded"] == 2
+    assert result.data["failed"] == 1
+    assert result.data["results"][0]["ok"] is True
+    assert result.data["results"][1]["ok"] is False
+    assert result.data["results"][2]["ok"] is True
+    assert "connection refused" in result.data["results"][1]["error"]
 
 
-async def test_fetch_url_batch_respects_max_urls(
+async def test_fetch_batch_url_respects_max_concurrent(
     ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Create a sitemap with many URLs
-    items = "".join(f"<url><loc>https://example.com/docs/ai/page{i}</loc></url>" for i in range(20))
-    sitemap_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  {items}
-</urlset>"""
+    """Verify max_concurrent parameter is accepted and tool runs without errors."""
 
-    call_count = [0]
+    def fake_fetch_one(url: str, max_chars: int, extract_text: bool, timeout: float | None) -> str:
+        return "<html><body><p>Content</p></body></html>"
 
-    def fake_urlopen(req, timeout=None):
-        call_count[0] += 1
-        return _make_mock_response(sitemap_xml.encode())
+    monkeypatch.setattr("om_harness.tools.web._fetch_url_sync", fake_fetch_one)
 
-    monkeypatch.setattr("om_harness.tools.web.urlopen", fake_urlopen)
-    result = await FetchUrl(ctx).run(
-        FetchUrl.Args(
-            url="https://example.com/docs/ai",
-            action="batch",
-            max_urls=5,
+    result = await FetchBatchUrl(ctx).run(
+        FetchBatchUrl.Args(
+            urls=[
+                "https://example.com/page1",
+                "https://example.com/page2",
+                "https://example.com/page3",
+                "https://example.com/page4",
+            ],
+            max_concurrent=2,
+            max_chars=1000,
+        )
+    )
+    assert result.ok
+    assert result.data["total"] == 4
+    assert result.data["succeeded"] == 4
+
+
+async def test_fetch_batch_url_respects_max_chars(
+    ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from om_harness.tools.base import cap_text
+
+    def fake_fetch_one(url: str, max_chars: int, extract_text: bool, timeout: float | None) -> str:
+        # Simulate what _fetch_url_sync does: apply cap_text
+        text = "<p>" + "x" * 10000 + "</p>"
+        truncated, _ = cap_text(text, max_chars, "fetched content")
+        return truncated
+
+    monkeypatch.setattr("om_harness.tools.web._fetch_url_sync", fake_fetch_one)
+
+    result = await FetchBatchUrl(ctx).run(
+        FetchBatchUrl.Args(
+            urls=["https://example.com/page1", "https://example.com/page2"],
             max_chars=100,
         )
     )
     assert result.ok
-    assert result.data["discovered"] == 5
-    assert result.data["fetched"] == 5
+    assert result.data["total"] == 2
+    for r in result.data["results"]:
+        assert r["ok"] is True
+        # The text is truncated to max_chars, but cap_text adds a truncation notice
+        # So we just verify the content part (before truncation notice) is at most max_chars
+        content_part = r["text"].split("\n...")[0] if "\n..." in r["text"] else r["text"]
+        assert len(content_part) <= 100
+
+
+async def test_fetch_batch_url_validates_all_urls(ctx: ToolContext) -> None:
+    with pytest.raises(ToolError, match="refusing local"):
+        await FetchBatchUrl(ctx).run(FetchBatchUrl.Args(urls=["http://127.0.0.1/test"]))
+
+    with pytest.raises(ToolError, match="scheme"):
+        await FetchBatchUrl(ctx).run(FetchBatchUrl.Args(urls=["file:///etc/passwd"]))
+
+
+async def test_fetch_batch_url_extract_text_option(
+    ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from om_harness.tools.web import _extract_text
+
+    def fake_fetch_one(url: str, max_chars: int, extract_text: bool, timeout: float | None) -> str:
+        # The mock receives raw HTML. The actual _fetch_url_sync applies extraction
+        # based on extract_text flag. We need to simulate that behavior.
+        raw_html = "<html><body><h1>Title</h1><p>Content</p></body></html>"
+        if extract_text:
+            return _extract_text(raw_html)
+        return raw_html
+
+    monkeypatch.setattr("om_harness.tools.web._fetch_url_sync", fake_fetch_one)
+
+    # With extract_text=True (default)
+    result = await FetchBatchUrl(ctx).run(
+        FetchBatchUrl.Args(urls=["https://example.com/page1"], extract_text=True)
+    )
+    assert result.ok
+    assert "Title" in result.data["results"][0]["text"]
+    assert "Content" in result.data["results"][0]["text"]
+    assert "<" not in result.data["results"][0]["text"]
+
+    # With extract_text=False
+    result = await FetchBatchUrl(ctx).run(
+        FetchBatchUrl.Args(urls=["https://example.com/page1"], extract_text=False)
+    )
+    assert result.ok
+    assert "<html>" in result.data["results"][0]["text"]
+
+
+async def test_fetch_batch_url_rejects_localhost(ctx: ToolContext) -> None:
+    with pytest.raises(ToolError, match="refusing local"):
+        await FetchBatchUrl(ctx).run(FetchBatchUrl.Args(urls=["http://127.0.0.1/test"]))
+
+
+async def test_fetch_batch_url_rejects_file_scheme(ctx: ToolContext) -> None:
+    with pytest.raises(ToolError, match="scheme"):
+        await FetchBatchUrl(ctx).run(FetchBatchUrl.Args(urls=["file:///etc/passwd"]))

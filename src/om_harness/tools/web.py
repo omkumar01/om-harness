@@ -1,20 +1,18 @@
-"""Web content fetching tool with SSRF protection and batch sitemap scraping.
+"""Web content fetching tool with SSRF protection.
 
-``fetch_url`` supports two modes:
-- **single**: fetch one URL, optionally extract plain text from HTML, trim to
-  ``max_chars``.
-- **batch**: given a URL path prefix, fetch the root domain's ``sitemap.xml``,
-  discover all URLs matching the prefix, and concurrently fetch each one.
+``fetch_url`` fetches a single URL and optionally extracts readable text
+from HTML (markdown-like plain text).
+
+``fetch_batch_url`` fetches multiple URLs concurrently with configurable
+concurrency, taking an explicit list of URLs rather than discovering them.
 
 Security model (separate from ``models_json.validate_provider_url``):
 - Only ``http``/``https`` schemes are allowed.
 - Hosts that are loopback, private, link-local, reserved, or have local
   suffixes (``.local``, ``.internal``, ``.localhost``) are rejected.
 - URL-embedded credentials (``user:pass@host``) are rejected.
-- XML entity injection is blocked: DOCTYPE/ENTITY declarations in sitemaps
-  are rejected before parsing.
 - A per-URL output cap (``max_chars``) prevents resource exhaustion.
-- Batch mode caps concurrent fetches via ``max_urls``.
+- Batch mode caps concurrent fetches via ``max_concurrent``.
 """
 
 from __future__ import annotations
@@ -23,7 +21,6 @@ import asyncio
 import contextlib
 import gzip
 import ipaddress
-import re
 import socket
 from html.parser import HTMLParser
 from io import BytesIO
@@ -31,7 +28,6 @@ from typing import Any
 from urllib.parse import urlparse, urlunparse
 from urllib.request import Request, urlopen
 
-from defusedxml import ElementTree as ET
 from pydantic import BaseModel, Field
 
 from om_harness.tools.base import BaseTool, Permission, ToolError, ToolResult, cap_text
@@ -44,9 +40,6 @@ _LOCAL_SUFFIXES = (".localhost", ".local", ".internal")
 
 # Maximum redirect hops before giving up.
 _MAX_REDIRECTS = 5
-
-# Pre-check regex for XML entity injection (DOCTYPE / ENTITY declarations).
-_XML_ENTITY_RE = re.compile(r"<!DOCTYPE|<!ENTITY", re.IGNORECASE)
 
 # User-Agent used for all outgoing requests.
 _USER_AGENT = "om-harness/1.1.0 (+https://github.com/omkumar01/om-harness)"
@@ -148,13 +141,13 @@ def _validate_url(url: str) -> str:
     if _is_blocked_host(parsed.hostname):
         raise ToolError(
             f"refusing local or private host {parsed.hostname!r}; "
-            "fetch_url is restricted to public web content"
+            "fetch is restricted to public web content"
         )
     return urlunparse(parsed)
 
 
 def _extract_text(html: str) -> str:
-    """Strip HTML tags and return plain text."""
+    """Strip HTML tags and return plain text (markdown-like)."""
     parser = _TextExtractor()
     parser.feed(html)
     parser.close()
@@ -200,93 +193,26 @@ def _fetch_url_sync(url: str, max_chars: int, extract_text: bool, timeout: float
     return trimmed
 
 
-def _parse_sitemap(sitemap_url: str, path_prefix: str, max_urls: int) -> list[str]:
-    """Fetch and parse a sitemap XML, return URLs matching the path prefix.
-
-    Handles both ``urlset`` (returns matching URLs) and ``sitemapindex``
-    (recursively fetches referenced sub-sitemaps). Rejects DOCTYPE/ENTITY
-    declarations for XML entity injection protection; ``defusedxml`` also
-    forbids DTD/entities natively as defense-in-depth.
-    """
-    try:
-        raw = _fetch_url_sync(sitemap_url, max_chars=1_000_000, extract_text=False, timeout=30)
-    except ToolError:
-        return []
-    # Reject XML entity injection: DOCTYPE and ENTITY declarations anywhere
-    # in the input (XXE / billion-laughs protection). defusedxml also
-    # forbids DTD natively, so this is defense-in-depth.
-    if _XML_ENTITY_RE.search(raw):
-        raise ToolError(
-            "sitemap rejected: DOCTYPE/ENTITY declarations are not allowed (XXE protection)"
-        )
-    try:
-        root = ET.fromstring(raw)
-    except ET.ParseError:
-        return []
-    # Namespace handling: sitemaps use http://www.sitemaps.org/schemas/sitemap/0.9
-    ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
-    urls: list[str] = []
-
-    # Check if this is a sitemapindex (references other sitemaps).
-    sitemap_elems = root.findall(".//sm:sitemap", ns)
-    if sitemap_elems:
-        for s in sitemap_elems:
-            loc = s.find("sm:loc", ns)
-            if loc is not None and loc.text:
-                sub_url = loc.text.strip()
-                # Recurse into sub-sitemap.
-                try:
-                    sub_urls = _parse_sitemap(sub_url, path_prefix, max_urls)
-                    urls.extend(sub_urls)
-                except ToolError:
-                    continue
-        return urls[:max_urls]
-
-    # It's a urlset — extract matching URLs.
-    for url_elem in root.findall(".//sm:url", ns):
-        loc = url_elem.find("sm:loc", ns)
-        if loc is not None and loc.text:
-            u = loc.text.strip()
-            # Match against the URL's path component, not the full URL.
-            parsed = urlparse(u)
-            if parsed.path.startswith(path_prefix):
-                urls.append(u)
-                if len(urls) >= max_urls:
-                    return urls
-    return urls
-
-
 class FetchUrlArgs(BaseModel):
-    url: str = Field(description="URL to fetch (single mode) or base path prefix (batch mode)")
-    action: str = Field(
-        default="single", description="single: fetch one URL; batch: discover + fetch via sitemap"
-    )
+    url: str = Field(description="URL to fetch")
     max_chars: int = Field(
-        default=5000, ge=1, le=200000, description="Maximum characters of text to return per URL"
+        default=50000, ge=1, le=200000, description="Maximum characters of text to return"
     )
-    extract_text: bool = Field(default=True, description="Strip HTML tags to extract plain text")
-    max_urls: int = Field(
-        default=10, ge=1, le=50, description="In batch mode: maximum number of URLs to fetch"
+    extract_text: bool = Field(
+        default=True, description="Strip HTML tags to extract plain text (markdown-like)"
     )
-    headers: dict[str, str] = Field(default_factory=dict, description="Custom HTTP headers to send")
 
 
 class FetchUrl(BaseTool[FetchUrlArgs]):
     name = "fetch_url"
     description = (
-        "Fetch web content from a URL (read-only). In 'single' mode, fetches one URL "
-        "and optionally extracts plain text from HTML. In 'batch' mode, discovers all "
-        "URLs under a path prefix via sitemap.xml and fetches them concurrently."
+        "Fetch a single URL and optionally extract readable text "
+        "from HTML (markdown-like plain text)."
     )
     permission = Permission.read_only
     Args = FetchUrlArgs
 
     async def run(self, args: FetchUrlArgs) -> ToolResult:
-        if args.action == "batch":
-            return await self._run_batch(args)
-        return await self._run_single(args)
-
-    async def _run_single(self, args: FetchUrlArgs) -> ToolResult:
         loop = asyncio.get_event_loop()
         try:
             text = await loop.run_in_executor(
@@ -304,72 +230,7 @@ class FetchUrl(BaseTool[FetchUrlArgs]):
             output=text,
             data={
                 "url": args.url,
-                "action": "single",
                 "content_truncated": len(text) >= args.max_chars,
-            },
-        )
-
-    async def _run_batch(self, args: FetchUrlArgs) -> ToolResult:
-        # Validate the base URL and derive root + prefix.
-        validated = _validate_url(args.url)
-        parsed = urlparse(validated)
-        path_prefix = parsed.path.rstrip("/")
-        if not path_prefix:
-            path_prefix = "/"
-        sitemap_url = f"{parsed.scheme}://{parsed.netloc}/sitemap.xml"
-
-        # Discover URLs via sitemap.
-        loop = asyncio.get_event_loop()
-        try:
-            sitemap_urls = await loop.run_in_executor(
-                None, _parse_sitemap, sitemap_url, path_prefix, args.max_urls
-            )
-        except ToolError:
-            raise
-        if not sitemap_urls:
-            return ToolResult(
-                ok=True,
-                output=f"No URLs found under {args.url} in sitemap.xml.",
-                data={"discovered": 0, "fetched": 0, "action": "batch"},
-            )
-
-        # Concurrently fetch each discovered URL.
-        fetch_tasks = [
-            loop.run_in_executor(
-                None,
-                _fetch_url_sync,
-                url,
-                args.max_chars,
-                args.extract_text,
-                self.ctx.tool_timeout_seconds,
-            )
-            for url in sitemap_urls
-        ]
-        results: list[dict[str, Any]] = []
-        summary_lines: list[str] = []
-        for url, future in zip(sitemap_urls, fetch_tasks, strict=False):
-            try:
-                text = await future
-                results.append({"url": url, "ok": True, "text_preview": text[:500]})
-                summary_lines.append(f"  ✓ {url}")
-            except ToolError as exc:
-                results.append({"url": url, "ok": False, "error": str(exc)})
-                summary_lines.append(f"  ✗ {url}: {exc}")
-                summary_lines.append(f"  ✗ {url}: {exc}")
-
-        summary = f"Fetched {len(results)} URL(s) from sitemap:\n" + "\n".join(summary_lines)
-        text, cap_hit = cap_text(summary, self.ctx.max_output_chars, "batch summary")
-        return ToolResult(
-            ok=True,
-            output=text,
-            truncated=cap_hit,
-            data={
-                "discovered": len(sitemap_urls),
-                "fetched": len(results),
-                "succeeded": sum(1 for r in results if r.get("ok")),
-                "failed": sum(1 for r in results if not r.get("ok")),
-                "action": "batch",
-                "results": results,
             },
         )
 
@@ -389,8 +250,7 @@ class FetchBatchUrl(BaseTool[FetchBatchUrlArgs]):
     name = "fetch_batch_url"
     description = (
         "Fetch multiple URLs concurrently (read-only). Takes a list of URLs and fetches "
-        "them concurrently with optional HTML text extraction. Unlike fetch_url's batch "
-        "mode, this takes an explicit list of URLs rather than discovering them from a sitemap."
+        "them concurrently with optional HTML text extraction."
     )
     permission = Permission.read_only
     Args = FetchBatchUrlArgs
@@ -407,11 +267,8 @@ class FetchBatchUrl(BaseTool[FetchBatchUrlArgs]):
 
         async def fetch_one(url: str) -> dict[str, Any]:
             async with semaphore:
-                loop = asyncio.get_event_loop()
                 try:
-                    text = await loop.run_in_executor(
-                        None,
-                        _fetch_url_sync,
+                    text = _fetch_url_sync(
                         url,
                         args.max_chars,
                         args.extract_text,

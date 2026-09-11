@@ -16,10 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   glob pattern), `count_lines` (count lines/words/characters in files or
   directories), `format_code` (auto-detect and run the repo's formatter),
   `lint_code` (auto-detect and run the repo's linter), and `fetch_url`
-  (fetch web content with SSRF protection; supports single-URL and batch
-  sitemap-driven scraping modes).
-- **Dependency**: `defusedxml` for secure XML parsing of sitemaps (XXE
-  protection) in the `fetch_url` tool.
+  (fetch single URL with SSRF protection and markdown-like text extraction).
+- **New tool**: `fetch_batch_url` (fetch multiple URLs concurrently with
+  configurable concurrency; takes explicit list of URLs).
 - **Documentation**: comprehensive guide for using tools, skills, and plugins in
   the interactive shell (`docs/interactive-shell-extensions.md`), covering tool
   permission levels, approval policies, skill discovery and namespacing,
@@ -29,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `fetch_url` single mode: fixed `ToolResult` data key collision with event
   bus `truncated` field by renaming internal key to `content_truncated`.
+- Removed batch/sitemap scraping from `fetch_url`; batch processing is now
+  exclusively in `fetch_batch_url` which takes explicit URL lists.
 
 <!-- Add new entries here, above the latest release. -->
 

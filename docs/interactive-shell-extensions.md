@@ -60,7 +60,8 @@ Type `/` to trigger the autocomplete popup for slash commands.
 · list_files (read_only): List files in the repository (relative paths).
 · find_files (read_only): Find files in the repository matching a glob pattern.
 · count_lines (read_only): Count lines, words, and characters in a file or directory tree.
-· fetch_url (read_only): Fetch web content from a URL; supports batch sitemap scraping.
+· fetch_url (read_only): Fetch a single URL and extract readable text from HTML (markdown-like).
+· fetch_batch_url (read_only): Fetch multiple URLs concurrently with configurable concurrency.
 · skill (read_only): Load the full instructions of a named skill … (shown only when skills are installed)
 · git_branch (mutating): List, create, switch, or delete git branches.
 · git_stash (mutating): Save (stash), restore (pop), list, or drop stashed changes.
@@ -85,7 +86,7 @@ Every tool declares one of three permission levels (defined in
 
 | Level | Tools | In the shell |
 |---|---|---|
-| `read_only` | `list_files`, `read_file`, `search_files`, `find_files`, `count_lines`, `git_status`, `git_diff`, `git_log`, `git_log_graph`, `git_show`, `git_blame`, `git_remote` (list only), `repo_info`, `fetch_url`, `skill` | **Always allowed** — no approval prompt, regardless of mode. |
+| `read_only` | `list_files`, `read_file`, `search_files`, `find_files`, `count_lines`, `git_status`, `git_diff`, `git_log`, `git_log_graph`, `git_show`, `git_blame`, `git_remote` (list only), `repo_info`, `fetch_url`, `fetch_batch_url`, `skill` | **Always allowed** — no approval prompt, regardless of mode. |
 | `mutating` | `write_file`, `edit_file`, `run_shell`, `git_add`, `git_commit`, `git_branch`, `git_stash`, `git_remote` (add/remove/fetch), `run_tests`, `format_code`, `lint_code` | Allowed without prompt under `auto`; asked under `ask`; only allowed-listed tools run under `allowlist`; blocked under `deny`. |
 | `destructive` | `git_restore` | **Never auto-approved**, even under `auto`. Always requires explicit confirmation. |
 
