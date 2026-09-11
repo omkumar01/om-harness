@@ -29,3 +29,17 @@ htmlcov/
 # Local agent tooling state
 .mimosa/
 .zcode/
+
+# graphify knowledge graph build artifacts
+graphify-out/
+!graphify-out/
+!graphify-out/*.md
+!graphify-out/*.json
+!graphify-out/*.html
+/graphify-out/.graphify_*
+/graphify-out/cache/
+/graphify-out/graph.json
+/graphify-out/graph.html
+/graphify-out/GRAPH_REPORT.md
+/graphify-out/manifest.json
+/graphify-out/20*/*

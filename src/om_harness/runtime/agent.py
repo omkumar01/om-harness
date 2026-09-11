@@ -119,9 +119,13 @@ class AgentFactory:
         agent_name: str,
         tool_names: list[str] | None = None,
         retries: int = 1,
+        tool_max_retries: int | None = None,
     ) -> Agent:
         names = tool_names if tool_names is not None else self.registry.names()
-        tools = [self._bridge_tool(self.registry.get(name), agent_name) for name in names]
+        tools = [
+            self._bridge_tool(self.registry.get(name), agent_name, tool_max_retries)
+            for name in names
+        ]
         return Agent(
             model,
             tools=tools,
@@ -130,7 +134,9 @@ class AgentFactory:
             retries=retries,
         )
 
-    def _bridge_tool(self, tool: BaseTool, agent_name: str) -> Tool:
+    def _bridge_tool(
+        self, tool: BaseTool, agent_name: str, tool_max_retries: int | None = None
+    ) -> Tool:
         """Wrap a registry tool as a PydanticAI tool via the guarded executor."""
         args_model = tool.args_model
         executor = self.executor

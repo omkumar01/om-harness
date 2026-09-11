@@ -174,6 +174,7 @@ class AgentRunner:
             model=model,
             system_prompt=assembled.system_prompt,
             agent_name=task.role,
+            tool_max_retries=self.config.tool_max_retries,
         )
 
         self._emit(

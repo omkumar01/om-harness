@@ -90,27 +90,38 @@ def apply_config_update(harness: Any, key: str, value: str) -> str:
         updates = {"budget": {"max_requests": parsed}}
         message = f"budget.max_requests set to {parsed}"
 
-    elif key in ("agent_timeout", "tool_timeout"):
-        try:
-            seconds = parse_timeout(value)
-        except (ValueError, TypeError) as exc:
-            raise SettingsError(
-                f"invalid {key} {value!r}; use seconds or 'off' to disable"
-            ) from exc
-        attr = f"{key}_seconds"
-        setattr(config, attr, seconds)
-        if key == "tool_timeout":
-            # Tools share one live ToolContext; sync it so the change takes
-            # effect without rebuilding the registry.
-            tool_ctx = getattr(harness, "tool_ctx", None)
-            if tool_ctx is not None:
-                tool_ctx.tool_timeout_seconds = seconds
-        updates = {attr: "off" if seconds is None else seconds}
-        message = (
-            f"{key} timeout disabled (no timeout)"
-            if seconds is None
-            else f"{key} timeout set to {seconds:g}s"
-        )
+    elif key in ("agent_timeout", "tool_timeout", "tool_max_retries"):
+        if key == "tool_max_retries":
+            try:
+                parsed = int(value)
+                if parsed < 0:
+                    raise SettingsError("tool_max_retries must be >= 0")
+            except ValueError:
+                raise SettingsError("tool_max_retries must be an integer >= 0") from None
+            config.tool_max_retries = parsed
+            updates = {"tool_max_retries": parsed}
+            message = f"tool_max_retries set to {parsed}"
+        else:
+            try:
+                seconds = parse_timeout(value)
+            except (ValueError, TypeError) as exc:
+                raise SettingsError(
+                    f"invalid {key} {value!r}; use seconds or 'off' to disable"
+                ) from exc
+            attr = f"{key}_seconds"
+            setattr(config, attr, seconds)
+            if key == "tool_timeout":
+                # Tools share one live ToolContext; sync it so the change takes
+                # effect without rebuilding the registry.
+                tool_ctx = getattr(harness, "tool_ctx", None)
+                if tool_ctx is not None:
+                    tool_ctx.tool_timeout_seconds = seconds
+            updates = {attr: "off" if seconds is None else seconds}
+            message = (
+                f"{key} timeout disabled (no timeout)"
+                if seconds is None
+                else f"{key} timeout set to {seconds:g}s"
+            )
 
     elif key.startswith("task_model."):
         task_type_raw = key.partition(".")[2]
@@ -130,7 +141,7 @@ def apply_config_update(harness: Any, key: str, value: str) -> str:
     else:
         known = (
             "model, approval, verbosity, max_concurrency, max_requests, "
-            "agent_timeout, tool_timeout, task_model.<type>"
+            "agent_timeout, tool_timeout, tool_max_retries, task_model.<type>"
         )
         raise SettingsError(f"unknown config key {key!r}; configurable: {known}")
 

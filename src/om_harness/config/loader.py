@@ -124,6 +124,7 @@ class HarnessConfig(BaseModel):
     max_concurrency: int = 4
     agent_timeout_seconds: float | None = 600.0
     tool_timeout_seconds: float | None = 60.0
+    tool_max_retries: int | None = 3
     verbosity: Verbosity = Verbosity.compact
     thinking: ThinkingLevel = ThinkingLevel.off
 

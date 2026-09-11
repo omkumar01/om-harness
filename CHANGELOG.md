@@ -31,6 +31,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed batch/sitemap scraping from `fetch_url`; batch processing is now
   exclusively in `fetch_batch_url` which takes explicit URL lists.
 
+### Added
+
+- **Config**: new `tool_max_retries` option (default: `None`, no retries) to
+  control automatic retries for failed tool calls. Configurable via
+  `/config set tool_max_retries <N>` or `OM_HARNESS_TOOL_MAX_RETRIES` env var.
+  Applies to all PydanticAI-wrapped tools (shell, fetch, format, lint, etc.).
+
+### Changed
+
+- **File operations**: expanded `SKIP_DIRS` to cover all common build/cache
+  directories across Python, Node.js, Java, Go, Rust, Ruby, PHP, C/C++, .NET,
+  Swift/iOS, Terraform, Docker, and IDEs; removed duplicate entries.
+
 <!-- Add new entries here, above the latest release. -->
 
 ## [1.1.0] - 2026-09-09

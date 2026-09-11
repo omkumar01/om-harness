@@ -76,6 +76,65 @@ Type `/` to trigger the autocomplete popup for slash commands.
 · git_restore (destructive): DISCARD uncommitted changes to a file …
 ```
 
+### Tools by category
+
+#### File Operations
+
+| Tool | Permission | Description |
+|---|---|---|
+| `list_files` | read_only | List files in the repository (relative paths) |
+| `read_file` | read_only | Read a text file from the repository (truncated to the context cap) |
+| `search_files` | read_only | Search file contents with a regular expression; returns file:line matches |
+| `write_file` | mutating | Create or overwrite a file with the given content |
+| `edit_file` | mutating | Replace an exact substring in a file (minimal search/replace patch) |
+| `find_files` | read_only | Find files in the repository matching a glob pattern |
+| `count_lines` | read_only | Count lines, words, and characters in a file or directory tree |
+
+#### Git Operations
+
+| Tool | Permission | Description |
+|---|---|---|
+| `git_status` | read_only | Show the current branch and modified/staged files |
+| `git_diff` | read_only | Show the unified diff of uncommitted changes (optionally staged only) |
+| `git_log` | read_only | Show recent commit history (oneline, newest first) |
+| `git_log_graph` | read_only | Show commit history as a visual graph with branch decorations |
+| `git_show` | read_only | Show a file's content at HEAD (last committed version) |
+| `git_blame` | read_only | Show line-by-line blame attribution for a file |
+| `git_branch` | mutating | List, create, switch, or delete git branches |
+| `git_stash` | mutating | Save (stash), restore (pop), list, or drop stashed changes |
+| `git_remote` | mutating | List, add, remove, or fetch from git remotes |
+| `git_add` | mutating | Stage files for commit |
+| `git_commit` | mutating | Commit staged changes with a message |
+| `git_restore` | destructive | DISCARD uncommitted changes to a file |
+
+#### Code Quality
+
+| Tool | Permission | Description |
+|---|---|---|
+| `run_tests` | mutating | Detect and run the repository's test suite (pytest or npm test) |
+| `format_code` | mutating | Auto-detect and run the repository's formatter |
+| `lint_code` | mutating | Auto-detect and run the repository's linter |
+
+#### Testing & Execution
+
+| Tool | Permission | Description |
+|---|---|---|
+| `run_shell` | mutating | Execute a command in the repository root (argv-only, native pipes/redirects) |
+
+#### Web & Info
+
+| Tool | Permission | Description |
+|---|---|---|
+| `fetch_url` | read_only | Fetch a single URL and extract readable text from HTML (markdown-like) |
+| `fetch_batch_url` | read_only | Fetch multiple URLs concurrently with configurable concurrency |
+| `repo_info` | read_only | Summarize repository: branch, HEAD, languages, file counts |
+
+#### Conditional
+
+| Tool | Permission | Description |
+|---|---|---|
+| `skill` | read_only | Load full instructions of a named skill (only when skills are discovered) |
+
 The `permission` label tells you how the approval engine treats each tool.
 
 ### Permission levels and what they mean

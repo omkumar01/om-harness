@@ -117,7 +117,7 @@ def args_hint_for(text: str, model_names: list[str]) -> str | None:
     if command.name == "config":
         return (
             base + "  keys: model, thinking, approval, verbosity, max_concurrency, "
-            "max_requests, agent_timeout, tool_timeout, task_model.<type>"
+            "max_requests, agent_timeout, tool_timeout, tool_max_retries, task_model.<type>"
         )
     if command.name == "timeout":
         return base + "  · off disables the timeout"
@@ -187,6 +187,7 @@ class SlashCompleter(Completer):
                 ("max_requests", "per-run request budget"),
                 ("agent_timeout", "seconds or off"),
                 ("tool_timeout", "seconds or off"),
+                ("tool_max_retries", "tool retry limit or 0 to disable"),
                 ("task_model.explore", "route explore tasks"),
                 ("task_model.implement", "route implement tasks"),
                 ("task_model.review", "route review tasks"),
