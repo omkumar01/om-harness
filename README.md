@@ -284,7 +284,9 @@ A plugin may carry an optional `plugin.json` manifest (`name`,
 their namespaced name (`<plugin>:<skill>`, plain name when unique), and the
 agent can load them with the `skill` tool. In the shell, `/skill <name>
 [args]` runs a turn that follows a skill. Disable everything with
-`[skills] enabled = false` in `om-harness.toml`.
+`[skills] enabled = false` in `om-harness.toml`. For a comprehensive guide to
+using tools, skills, and plugins in the interactive shell, see
+[docs/interactive-shell-extensions.md](docs/interactive-shell-extensions.md).
 
 ### Thinking levels
 
@@ -479,6 +481,7 @@ anything that looks off — including the docs.
   orchestration, context strategy, tool safety, state model (with diagrams)
 - [docs/design.md](docs/design.md) — design document and tradeoffs
 - [docs/configuration.md](docs/configuration.md) — config files and env vars
+- [docs/interactive-shell-extensions.md](docs/interactive-shell-extensions.md) — using tools, skills, and plugins in the interactive shell
 - [CONTRIBUTING.md](CONTRIBUTING.md) — development setup and workflows
 
 ## Project layout

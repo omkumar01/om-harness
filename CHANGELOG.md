@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Documentation**: comprehensive guide for using tools, skills, and plugins in
+  the interactive shell (`docs/interactive-shell-extensions.md`), covering tool
+  permission levels, approval policies, skill discovery and namespacing,
+  plugin installation/lifecycle, keyboard shortcuts, and slash commands.
+
+<!-- Add new entries here, above the latest release. -->
+
 ## [1.1.0] - 2026-09-09
 
 ### Added
@@ -89,6 +100,3 @@ First stable release of the om-harness coding-agent harness.
   a minimal pinned app (toolbar-only layout, refreshed each second) under
   `patch_stdout` so output scrolls above the bar; fails safely back to the
   previous plain-await behavior on non-TTY or unsupported terminals.
-
-
-<!-- Add new entries here, above the latest release. -->
