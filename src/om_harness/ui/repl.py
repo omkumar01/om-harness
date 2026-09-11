@@ -69,11 +69,20 @@ _ENABLE_VT = 0x0004  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
 _STD_OUTPUT_HANDLE = -11
 
 # Tools whose completions trigger a real-time file-change display.
-_CHANGE_TOOLS = {"write_file", "edit_file"}
+_CHANGE_TOOLS = {"write_file", "edit_file", "format_code", "lint_code"}
 
 # Tools that execute commands; completions always render a command block with
 # a collapsed output preview, regardless of verbosity (like file changes).
-_COMMAND_TOOLS = {"run_shell", "run_tests"}
+_COMMAND_TOOLS = {
+    "run_shell",
+    "run_tests",
+    "git_branch",
+    "git_stash",
+    "git_remote",
+    "format_code",
+    "lint_code",
+    "fetch_url",
+}
 _COMMAND_HISTORY_MAX = 20  # commands kept for Alt+O / /output recall
 _COMMAND_PREVIEW_LINES = 3  # tail lines shown in the collapsed block
 _COMMAND_EXPAND_LINES = 300  # inline cap when Alt+O expands an output
