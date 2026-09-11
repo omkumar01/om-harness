@@ -10,7 +10,19 @@ import pytest
 
 from om_harness.tools.base import Permission, ToolContext, ToolError
 from om_harness.tools.envinfo import RepoInfo
-from om_harness.tools.git import GitAdd, GitCommit, GitDiff, GitLog, GitRestore, GitStatus
+from om_harness.tools.git import (
+    GitAdd,
+    GitBlame,
+    GitBranch,
+    GitCommit,
+    GitDiff,
+    GitLog,
+    GitLogGraph,
+    GitRemote,
+    GitRestore,
+    GitStash,
+    GitStatus,
+)
 from om_harness.tools.shell import RunShell
 from om_harness.tools.testing import RunTests
 
@@ -167,3 +179,163 @@ async def test_repo_info(ctx: ToolContext) -> None:
     result = await RepoInfo(ctx).run(RepoInfo.Args())
     assert result.ok
     assert "python" in result.output.lower()
+
+
+# -- git branch ---------------------------------------------------------------
+
+
+async def test_git_branch_list(ctx: ToolContext) -> None:
+    result = await GitBranch(ctx).run(GitBranch.Args(action="list"))
+    assert result.ok
+    assert GitBranch.permission == Permission.mutating
+    # The current branch is marked with an asterisk
+    assert "*" in result.output
+
+
+async def test_git_branch_create_and_switch(ctx: ToolContext) -> None:
+    create = await GitBranch(ctx).run(GitBranch.Args(action="create", name="feature-x"))
+    assert create.ok
+    assert "feature-x" in create.output
+    switch = await GitBranch(ctx).run(GitBranch.Args(action="switch", name="feature-x"))
+    assert switch.ok
+    branches = await GitBranch(ctx).run(GitBranch.Args(action="list"))
+    assert "feature-x" in branches.output
+
+
+async def test_git_branch_delete(ctx: ToolContext) -> None:
+    # Create a branch, switch back, then delete it
+    await GitBranch(ctx).run(GitBranch.Args(action="create", name="temp-branch"))
+    # Switch back to the default branch to allow deletion (can't delete checked-out branch)
+    _git(ctx.repo_root, "switch", "master")
+    result = await GitBranch(ctx).run(GitBranch.Args(action="delete", name="temp-branch"))
+    assert result.ok
+    assert "temp-branch" in result.output
+
+
+async def test_git_branch_requires_name() -> None:
+    with pytest.raises(ValueError, match="name is required"):
+        GitBranch.Args(action="create")
+    with pytest.raises(ValueError, match="name is required"):
+        GitBranch.Args(action="switch")
+    with pytest.raises(ValueError, match="name is required"):
+        GitBranch.Args(action="delete")
+
+
+# -- git stash ----------------------------------------------------------------
+
+
+async def test_git_stash_save_list_pop(ctx: ToolContext) -> None:
+    # Modify a tracked file to create uncommitted changes
+    (ctx.repo_root / "a.py").write_text("print('modified')\n")
+    save = await GitStash(ctx).run(GitStash.Args(action="save", message="wip"))
+    assert save.ok
+    lst = await GitStash(ctx).run(GitStash.Args(action="list"))
+    assert lst.ok
+    assert "wip" in lst.output or "stash@{0}" in lst.output
+    pop = await GitStash(ctx).run(GitStash.Args(action="pop"))
+    assert pop.ok
+
+
+async def test_git_stash_permissions() -> None:
+    assert GitStash.permission == Permission.mutating
+
+
+# -- git log graph ------------------------------------------------------------
+
+
+async def test_git_log_graph(ctx: ToolContext) -> None:
+    # Add a second commit for a more interesting graph
+    (ctx.repo_root / "b.py").write_text("y = 2\n")
+    _git(ctx.repo_root, "add", ".")
+    _git(ctx.repo_root, "commit", "-q", "-m", "second commit")
+    result = await GitLogGraph(ctx).run(GitLogGraph.Args(max_count=5))
+    assert result.ok
+    assert GitLogGraph.permission == Permission.read_only
+    assert "initial" in result.output or "second" in result.output
+
+
+async def test_git_log_graph_all(ctx: ToolContext) -> None:
+    # Create a second branch with its own commit, then switch back to show both in graph
+    _git(ctx.repo_root, "branch", "dev")
+    _git(ctx.repo_root, "switch", "dev")
+    (ctx.repo_root / "dev.txt").write_text("dev work\n")
+    _git(ctx.repo_root, "add", ".")
+    _git(ctx.repo_root, "commit", "-q", "-m", "dev commit")
+    _git(ctx.repo_root, "switch", "master")
+    result = await GitLogGraph(ctx).run(GitLogGraph.Args(max_count=10, all=True))
+    assert result.ok
+    assert "dev" in result.output
+
+
+async def test_git_log_graph_empty(tmp_path: Any) -> None:
+    # Fresh repo with no commits → git log fails gracefully
+    empty_repo = tmp_path / "empty-repo"
+    empty_repo.mkdir()
+    _git(empty_repo, "init", "-q")
+    _git(empty_repo, "config", "user.email", "test@example.com")
+    _git(empty_repo, "config", "user.name", "Test")
+    ctx_empty = ToolContext(repo_root=empty_repo)
+    result = await GitLogGraph(ctx_empty).run(GitLogGraph.Args(max_count=5))
+    assert result.ok
+    assert "No commits" in result.output
+
+
+# -- git blame ----------------------------------------------------------------
+
+
+async def test_git_blame(ctx: ToolContext) -> None:
+    result = await GitBlame(ctx).run(GitBlame.Args(path="a.py"))
+    assert result.ok
+    assert GitBlame.permission == Permission.read_only
+    # Should contain a commit hash and the file content
+    assert "print" in result.output
+
+
+async def test_git_blame_with_range(ctx: ToolContext) -> None:
+    result = await GitBlame(ctx).run(GitBlame.Args(path="a.py", start_line=1, end_line=1))
+    assert result.ok
+
+
+async def test_git_blame_nonexistent_file(ctx: ToolContext) -> None:
+    with pytest.raises(ToolError, match="failed"):
+        await GitBlame(ctx).run(GitBlame.Args(path="nonexistent.py"))
+
+
+# -- git remote ---------------------------------------------------------------
+
+
+async def test_git_remote_list_empty(ctx: ToolContext) -> None:
+    result = await GitRemote(ctx).run(GitRemote.Args(action="list"))
+    assert result.ok
+    assert GitRemote.permission == Permission.mutating
+    assert "No remotes" in result.output
+
+
+async def test_git_remote_add_and_list(ctx: ToolContext) -> None:
+    add = await GitRemote(ctx).run(
+        GitRemote.Args(action="add", name="origin", url="https://github.com/user/repo.git")
+    )
+    assert add.ok
+    lst = await GitRemote(ctx).run(GitRemote.Args(action="list"))
+    assert lst.ok
+    assert "origin" in lst.output
+    assert "https://github.com/user/repo.git" in lst.output
+
+
+async def test_git_remote_remove(ctx: ToolContext) -> None:
+    await GitRemote(ctx).run(
+        GitRemote.Args(action="add", name="origin", url="https://github.com/user/repo.git")
+    )
+    result = await GitRemote(ctx).run(GitRemote.Args(action="remove", name="origin"))
+    assert result.ok
+    lst = await GitRemote(ctx).run(GitRemote.Args(action="list"))
+    assert "No remotes" in lst.output
+
+
+async def test_git_remote_requires_name_and_url() -> None:
+    with pytest.raises(ValueError, match="name is required"):
+        GitRemote.Args(action="add")
+    with pytest.raises(ValueError, match="url is required"):
+        GitRemote.Args(action="add", name="origin")
+    with pytest.raises(ValueError, match="name is required"):
+        GitRemote.Args(action="remove")

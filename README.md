@@ -129,11 +129,14 @@ decision is visible.
   auto-selected.
 - **Async orchestration**: parallel fan-out/fan-in with deterministic
   aggregation, per-task timeouts, retries with backoff, and cancellation.
-- **Repository tools**: file list/read/search/write/edit, safe shell
-  execution (with native pipe and redirection support — no shell process
-  involved), git status/diff/log/show/add/commit/restore, test-runner
-  detection and execution, repo info — all schema'd, timeout-bounded, and
-  output-capped.
+- **Repository tools**: file list/read/search/write/edit, find files by
+  glob, count lines/words/characters, safe shell execution (with native
+  pipe and redirection support — no shell process involved), git
+  status/diff/log/show/add/commit/restore, **branch management**,
+  **stash**, **blame**, **remote management**, **log graph**, test-runner
+  detection and execution, auto-detect formatter/linter, **web content
+  fetching** (single URL + batch sitemap scraping), repo info — all schema'd,
+  timeout-bounded, and output-capped.
 - **Durable sessions**: state in `.om-harness/` (gitignored), atomic writes,
   checkpoints, and `resume` for interrupted work.
 - **Observability**: every run, agent call, tool call, approval, retry, and

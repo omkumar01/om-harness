@@ -16,7 +16,7 @@ the architectural reasoning behind the extension model, see
 
 | Concept | What it is | How the shell touches it |
 |---|---|---|
-| **Tools** | 16 schema'd actions the agent can take (read/write files, run shell, git, tests, repo info, load a skill). Each has a permission level: `read_only`, `mutating`, or `destructive`. | `/tools` lists them; the approval mode controls which mutable ones the agent may run without asking. |
+| **Tools** | 26 schema'd actions the agent can take (read/write files, find files, count lines, run shell, git, tests, lint/format, fetch web content, repo info, load a skill). Each has a permission level: `read_only`, `mutating`, or `destructive`. | `/tools` lists them; the approval mode controls which mutable ones the agent may run without asking. |
 | **Skills** | Small markdown instruction packs (`SKILL.md`). Names + one-line descriptions go in the system prompt; full instructions are fetched on demand. | `/skills` lists them; `/skill <name> [args]` runs a turn that loads and follows one. |
 | **Plugins** | Git repositories cloned into `~/.om-harness/plugins/` by the CLI. They ship skills (and, someday, tools and slash commands). | Installed from the CLI; `/plugins` lists them inside the shell; their skills appear in `/skills`. |
 
@@ -51,17 +51,27 @@ Type `/` to trigger the autocomplete popup for slash commands.
 · git_status (read_only): Show the current branch and modified/staged files.
 · git_diff (read_only): Show the unified diff of uncommitted changes (optionally staged only).
 · git_log (read_only): Show recent commit history (oneline, newest first).
+· git_log_graph (read_only): Show commit history as a visual graph with branch decorations.
 · git_show (read_only): Show a file's content at HEAD (last committed version).
+· git_blame (read_only): Show line-by-line blame attribution for a file.
+· git_remote (read_only): List, add, remove, or fetch from git remotes.
 · read_file (read_only): Read a text file from the repository (truncated to the context cap).
 · search_files (read_only): Search file contents with a regular expression; returns file:line matches.
 · list_files (read_only): List files in the repository (relative paths).
+· find_files (read_only): Find files in the repository matching a glob pattern.
+· count_lines (read_only): Count lines, words, and characters in a file or directory tree.
+· fetch_url (read_only): Fetch web content from a URL; supports batch sitemap scraping.
 · skill (read_only): Load the full instructions of a named skill … (shown only when skills are installed)
+· git_branch (mutating): List, create, switch, or delete git branches.
+· git_stash (mutating): Save (stash), restore (pop), list, or drop stashed changes.
 · git_add (mutating): Stage files for commit.
 · git_commit (mutating): Commit staged changes with a message.
 · edit_file (mutating): Replace an exact substring in a file …
-· run_shell (mutating): Execute a command in the repository root …
 · write_file (mutating): Create or overwrite a file with the given content …
+· run_shell (mutating): Execute a command in the repository root …
 · run_tests (mutating): Detect and run the repository's test suite (pytest or npm test).
+· format_code (mutating): Auto-detect and run the repository's formatter.
+· lint_code (mutating): Auto-detect and run the repository's linter.
 · git_restore (destructive): DISCARD uncommitted changes to a file …
 ```
 
@@ -75,8 +85,8 @@ Every tool declares one of three permission levels (defined in
 
 | Level | Tools | In the shell |
 |---|---|---|
-| `read_only` | `list_files`, `read_file`, `search_files`, `git_status`, `git_diff`, `git_log`, `git_show`, `repo_info`, `skill` | **Always allowed** — no approval prompt, regardless of mode. |
-| `mutating` | `write_file`, `edit_file`, `run_shell`, `git_add`, `git_commit`, `run_tests` | Allowed without prompt under `auto`; asked under `ask`; only allowed-listed tools run under `allowlist`; blocked under `deny`. |
+| `read_only` | `list_files`, `read_file`, `search_files`, `find_files`, `count_lines`, `git_status`, `git_diff`, `git_log`, `git_log_graph`, `git_show`, `git_blame`, `git_remote` (list only), `repo_info`, `fetch_url`, `skill` | **Always allowed** — no approval prompt, regardless of mode. |
+| `mutating` | `write_file`, `edit_file`, `run_shell`, `git_add`, `git_commit`, `git_branch`, `git_stash`, `git_remote` (add/remove/fetch), `run_tests`, `format_code`, `lint_code` | Allowed without prompt under `auto`; asked under `ask`; only allowed-listed tools run under `allowlist`; blocked under `deny`. |
 | `destructive` | `git_restore` | **Never auto-approved**, even under `auto`. Always requires explicit confirmation. |
 
 Every tool call — started, completed, denied, or failed — is published as an

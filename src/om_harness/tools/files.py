@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import re
 from pathlib import Path
 
@@ -227,4 +228,99 @@ class EditFile(BaseTool[EditFileArgs]):
         return ToolResult(
             output=f"Edited {args.path} ({replaced} replacement(s))",
             data={"path": args.path},
+        )
+
+
+class FindFilesArgs(BaseModel):
+    pattern: str = Field(description="Glob pattern to match (e.g. '*.py', 'src/**/*.test.ts')")
+    subdirectory: str = Field(default="", description="Optional subdirectory to search within")
+    max_results: int = Field(default=100, ge=1, le=500)
+
+
+class FindFiles(BaseTool[FindFilesArgs]):
+    name = "find_files"
+    description = "Find files in the repository matching a glob pattern."
+    permission = Permission.read_only
+    Args = FindFilesArgs
+
+    async def run(self, args: FindFilesArgs) -> ToolResult:
+        base = (
+            resolve_in_repo(self.ctx, args.subdirectory)
+            if args.subdirectory
+            else self.ctx.repo_root
+        )
+        if not base.exists():
+            raise ToolError(f"subdirectory {args.subdirectory!r} does not exist")
+        matches: list[str] = []
+        for path in iter_repo_files(base):
+            rel = path.relative_to(self.ctx.repo_root).as_posix()
+            if fnmatch.fnmatch(rel, args.pattern):
+                matches.append(rel)
+                if len(matches) >= args.max_results:
+                    break
+        if not matches:
+            return ToolResult(output="No files matched.")
+        text, truncated = cap_text("\n".join(matches), self.ctx.max_output_chars, "file list")
+        return ToolResult(output=text, truncated=truncated, data={"count": len(matches)})
+
+
+class CountLinesArgs(BaseModel):
+    path: str = Field(description="Repo-relative file or directory path")
+    extensions: list[str] = Field(
+        default_factory=list,
+        description="Only count files with these extensions (e.g. ['.py', '.ts'])",
+    )
+    recursive: bool = Field(default=True, description="Recurse into subdirectories")
+
+
+class CountLines(BaseTool[CountLinesArgs]):
+    name = "count_lines"
+    description = "Count lines, words, and characters in a file or directory tree."
+    permission = Permission.read_only
+    Args = CountLinesArgs
+
+    async def run(self, args: CountLinesArgs) -> ToolResult:
+        path = resolve_in_repo(self.ctx, args.path)
+        if not path.exists():
+            raise ToolError(f"path {args.path!r} does not exist")
+        ext_filter: set[str] | None = (
+            {e.lower() for e in args.extensions} if args.extensions else None
+        )
+        total_lines = 0
+        total_words = 0
+        total_chars = 0
+        file_count = 0
+        targets: list[Path] = []
+        if path.is_file():
+            targets = [path]
+        elif path.is_dir():
+            if args.recursive:
+                targets = iter_repo_files(path)
+            else:
+                targets = [p for p in path.iterdir() if p.is_file()]
+        for fpath in targets:
+            if ext_filter and fpath.suffix.lower() not in ext_filter:
+                continue
+            if fpath.suffix.lower() in SKIP_SUFFIXES:
+                continue
+            try:
+                text = fpath.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            total_lines += len(text.splitlines())
+            total_words += len(text.split())
+            total_chars += len(text)
+            file_count += 1
+        lines_str = f"{total_lines} lines"
+        words_str = f"{total_words} words"
+        chars_str = f"{total_chars} characters"
+        summary = f"{lines_str}, {words_str}, {chars_str} in {file_count} file(s)"
+        return ToolResult(
+            output=summary,
+            data={
+                "total_lines": total_lines,
+                "total_words": total_words,
+                "total_chars": total_chars,
+                "file_count": file_count,
+            },
         )

@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **10 new tools**: `git_branch` (list/create/switch/delete branches),
+  `git_stash` (save/pop/list/drop stashed changes), `git_log_graph` (commit
+  history as a visual graph), `git_blame` (line-by-line blame attribution),
+  `git_remote` (list/add/remove/fetch remotes), `find_files` (find files by
+  glob pattern), `count_lines` (count lines/words/characters in files or
+  directories), `format_code` (auto-detect and run the repo's formatter),
+  `lint_code` (auto-detect and run the repo's linter), and `fetch_url`
+  (fetch web content with SSRF protection; supports single-URL and batch
+  sitemap-driven scraping modes).
+- **Dependency**: `defusedxml` for secure XML parsing of sitemaps (XXE
+  protection) in the `fetch_url` tool.
 - **Documentation**: comprehensive guide for using tools, skills, and plugins in
   the interactive shell (`docs/interactive-shell-extensions.md`), covering tool
   permission levels, approval policies, skill discovery and namespacing,

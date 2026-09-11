@@ -7,7 +7,15 @@ from typing import Any
 import pytest
 
 from om_harness.tools.base import Permission, ToolContext, ToolError
-from om_harness.tools.files import EditFile, ListFiles, ReadFile, SearchFiles, WriteFile
+from om_harness.tools.files import (
+    CountLines,
+    EditFile,
+    FindFiles,
+    ListFiles,
+    ReadFile,
+    SearchFiles,
+    WriteFile,
+)
 
 
 @pytest.fixture
@@ -110,3 +118,74 @@ async def test_search_files_no_match(ctx: ToolContext) -> None:
     result = await SearchFiles(ctx).run(SearchFiles.Args(pattern="zzz-not-there"))
     assert result.ok
     assert "no matches" in result.output.lower()
+
+
+# -- find_files ----------------------------------------------------------------
+
+
+async def test_find_files_by_extension(ctx: ToolContext) -> None:
+    result = await FindFiles(ctx).run(FindFiles.Args(pattern="*.py"))
+    assert result.ok
+    assert "src/main.py" in result.output
+    assert "README.md" not in result.output
+    assert FindFiles.permission == Permission.read_only
+
+
+async def test_find_files_no_match(ctx: ToolContext) -> None:
+    result = await FindFiles(ctx).run(FindFiles.Args(pattern="*.rs"))
+    assert result.ok
+    assert "No files" in result.output
+
+
+async def test_find_files_max_results(ctx: ToolContext) -> None:
+    for i in range(10):
+        (ctx.repo_root / f"file_{i}.txt").write_text("x")
+    result = await FindFiles(ctx).run(FindFiles.Args(pattern="*.txt", max_results=3))
+    assert result.ok
+    assert result.data["count"] == 3
+
+
+async def test_find_files_subdirectory(tmp_path: Any) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("x")
+    (tmp_path / "src" / "b.py").write_text("x")
+    (tmp_path / "other.py").write_text("x")
+    ctx = ToolContext(repo_root=tmp_path)
+    result = await FindFiles(ctx).run(FindFiles.Args(pattern="*.py", subdirectory="src"))
+    assert result.ok
+    assert "src/a.py" in result.output
+    assert "src/b.py" in result.output
+    assert "other.py" not in result.output
+
+
+# -- count_lines ---------------------------------------------------------------
+
+
+async def test_count_lines_single_file(ctx: ToolContext) -> None:
+    result = await CountLines(ctx).run(CountLines.Args(path="src/main.py"))
+    assert result.ok
+    assert CountLines.permission == Permission.read_only
+    assert result.data["total_lines"] == 2  # "def main():" + "    print('hello')"
+    assert result.data["file_count"] == 1
+
+
+async def test_count_lines_directory(ctx: ToolContext) -> None:
+    result = await CountLines(ctx).run(CountLines.Args(path="src"))
+    assert result.ok
+    assert result.data["file_count"] == 1
+    assert result.data["total_lines"] == 2
+
+
+async def test_count_lines_with_extensions(tmp_path: Any) -> None:
+    (tmp_path / "a.py").write_text("line1\nline2\nline3\n")
+    (tmp_path / "b.txt").write_text("line1\nline2\n")
+    ctx = ToolContext(repo_root=tmp_path)
+    result = await CountLines(ctx).run(CountLines.Args(path=".", extensions=[".py"]))
+    assert result.ok
+    assert result.data["file_count"] == 1
+    assert result.data["total_lines"] == 3
+
+
+async def test_count_lines_nonexistent(ctx: ToolContext) -> None:
+    with pytest.raises(ToolError, match="does not exist"):
+        await CountLines(ctx).run(CountLines.Args(path="nonexistent.txt"))
