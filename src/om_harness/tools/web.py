@@ -302,7 +302,11 @@ class FetchUrl(BaseTool[FetchUrlArgs]):
         return ToolResult(
             ok=True,
             output=text,
-            data={"url": args.url, "action": "single", "truncated": len(text) >= args.max_chars},
+            data={
+                "url": args.url,
+                "action": "single",
+                "content_truncated": len(text) >= args.max_chars,
+            },
         )
 
     async def _run_batch(self, args: FetchUrlArgs) -> ToolResult:

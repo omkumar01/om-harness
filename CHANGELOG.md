@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   permission levels, approval policies, skill discovery and namespacing,
   plugin installation/lifecycle, keyboard shortcuts, and slash commands.
 
+### Fixed
+
+- `fetch_url` single mode: fixed `ToolResult` data key collision with event
+  bus `truncated` field by renaming internal key to `content_truncated`.
+
 <!-- Add new entries here, above the latest release. -->
 
 ## [1.1.0] - 2026-09-09

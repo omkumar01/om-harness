@@ -278,7 +278,7 @@ async def test_fetch_url_single_trims_output(
     assert result.ok
     # Output is trimmed to max_chars; truncation notice is appended beyond it.
     assert "truncated" in result.output
-    assert result.data["truncated"] is True
+    assert result.data["content_truncated"] is True
     # The content portion (before notice) should be at most max_chars.
     content_part = result.output.split("\n...")[0] if "\n..." in result.output else result.output
     assert len(content_part) <= 100
