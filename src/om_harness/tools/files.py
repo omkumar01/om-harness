@@ -19,21 +19,106 @@ from om_harness.tools.base import (
 
 # Directories never walked by list/search (runtime, VCS, dependency caches).
 SKIP_DIRS = {
+    # VCS
     ".git",
     ".hg",
     ".svn",
+    # om-harness runtime
     ".om-harness",
+    # Python
     ".venv",
     "venv",
-    "node_modules",
-    "__pycache__",
-    ".mypy_cache",
+    "env",
+    "ENV",
+    ".tox",
+    ".nox",
+    ".coverage",
+    "htmlcov",
     ".pytest_cache",
+    ".mypy_cache",
     ".ruff_cache",
-    "dist",
+    ".ruff",
+    "__pycache__",
+    "*.egg-info",
+    ".eggs",
+    "pip-wheel-metadata",
+    # Node.js / JavaScript / TypeScript
+    "node_modules",
+    ".npm",
+    ".yarn",
+    ".pnpm-store",
+    ".cache",
+    ".parcel-cache",
+    ".next",
+    ".nuxt",
+    ".output",
+    ".vercel",
+    ".netlify",
+    ".turbo",
+    ".eslintcache",
+    "bower_components",
+    "jspm_packages",
+    # Java / JVM
+    "target",
+    ".gradle",
+    "gradle",
     "build",
+    "out",
+    "bin",
+    ".classpath",
+    ".project",
+    ".settings",
+    # Go
+    "vendor",
+    # Rust
+    # (target already listed under Java/JVM)
+    # Ruby
+    ".bundle",
+    # (vendor/bundle is covered by vendor)
+    "gems",
+    "tmp",
+    "log",
+    # PHP
+    # (vendor already listed under Go)
+    ".phpunit.cache",
+    # C/C++
+    "obj",
+    "Debug",
+    "Release",
+    "x64",
+    "x86",
+    "cmake-build-debug",
+    "cmake-build-release",
+    ".vs",
+    # .NET
+    # (obj, out, build already listed)
+    "packages",
+    ".nuget",
+    # Swift/iOS
+    "Pods",
+    ".build",
+    "DerivedData",
+    # Terraform
+    ".terraform",
+    # Coverage / Testing
+    "coverage",
+    "coverage-final",
+    ".nyc_output",
+    ".jest",
+    "test-results",
+    "playwright-report",
+    # IDE / Editor
     ".idea",
     ".vscode",
+    ".vscode-test",
+    ".history",
+    # OS
+    ".DS_Store",
+    "Thumbs.db",
+    "ehthumbs.db",
+    # Docker
+    ".docker",
+    # Build outputs (dist, build, out already listed)
 }
 
 SKIP_SUFFIXES = {".pyc", ".pyo", ".so", ".dll", ".exe", ".lock", ".png", ".jpg", ".gif", ".zip"}
