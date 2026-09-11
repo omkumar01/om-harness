@@ -196,7 +196,7 @@ def _fetch_url_sync(url: str, max_chars: int, extract_text: bool, timeout: float
 class FetchUrlArgs(BaseModel):
     url: str = Field(description="URL to fetch")
     max_chars: int = Field(
-        default=50000, ge=1, le=200000, description="Maximum characters of text to return"
+        default=100000, ge=1, le=200000, description="Maximum characters of text to return"
     )
     extract_text: bool = Field(
         default=True, description="Strip HTML tags to extract plain text (markdown-like)"
@@ -240,7 +240,7 @@ class FetchBatchUrlArgs(BaseModel):
         min_length=1, max_length=100, description="List of URLs to fetch concurrently"
     )
     max_chars: int = Field(
-        default=50000, ge=1, le=200000, description="Maximum characters of text to return per URL"
+        default=100000, ge=1, le=200000, description="Maximum characters of text to return per URL"
     )
     extract_text: bool = Field(default=True, description="Strip HTML tags to extract plain text")
     max_concurrent: int = Field(default=10, ge=1, le=20, description="Maximum concurrent fetches")
