@@ -82,6 +82,7 @@ _COMMAND_TOOLS = {
     "format_code",
     "lint_code",
     "fetch_url",
+    "fetch_batch_url",
 }
 _COMMAND_HISTORY_MAX = 20  # commands kept for Alt+O / /output recall
 _COMMAND_PREVIEW_LINES = 3  # tail lines shown in the collapsed block

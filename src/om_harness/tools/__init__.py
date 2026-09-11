@@ -30,7 +30,7 @@ from om_harness.tools.quality import FormatCode, LintCode
 from om_harness.tools.registry import GuardedToolExecutor, ToolRegistry
 from om_harness.tools.shell import RunShell
 from om_harness.tools.testing import RunTests
-from om_harness.tools.web import FetchUrl
+from om_harness.tools.web import FetchBatchUrl, FetchUrl
 
 
 def build_default_registry(ctx: ToolContext) -> ToolRegistry:
@@ -61,6 +61,7 @@ def build_default_registry(ctx: ToolContext) -> ToolRegistry:
         FormatCode,
         LintCode,
         FetchUrl,
+        FetchBatchUrl,
         RepoInfo,
     ):
         registry.register(tool_cls(ctx))
@@ -73,6 +74,7 @@ __all__ = [
     "BaseTool",
     "CountLines",
     "EditFile",
+    "FetchBatchUrl",
     "FetchUrl",
     "FindFiles",
     "FormatCode",

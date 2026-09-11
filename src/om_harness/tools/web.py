@@ -372,3 +372,89 @@ class FetchUrl(BaseTool[FetchUrlArgs]):
                 "results": results,
             },
         )
+
+
+class FetchBatchUrlArgs(BaseModel):
+    urls: list[str] = Field(
+        min_length=1, max_length=100, description="List of URLs to fetch concurrently"
+    )
+    max_chars: int = Field(
+        default=5000, ge=1, le=200000, description="Maximum characters of text to return per URL"
+    )
+    extract_text: bool = Field(default=True, description="Strip HTML tags to extract plain text")
+    max_concurrent: int = Field(default=10, ge=1, le=20, description="Maximum concurrent fetches")
+
+
+class FetchBatchUrl(BaseTool[FetchBatchUrlArgs]):
+    name = "fetch_batch_url"
+    description = (
+        "Fetch multiple URLs concurrently (read-only). Takes a list of URLs and fetches "
+        "them concurrently with optional HTML text extraction. Unlike fetch_url's batch "
+        "mode, this takes an explicit list of URLs rather than discovering them from a sitemap."
+    )
+    permission = Permission.read_only
+    Args = FetchBatchUrlArgs
+
+    async def run(self, args: FetchBatchUrlArgs) -> ToolResult:
+        # Validate all URLs first
+        validated_urls: list[str] = []
+        for url in args.urls:
+            validated = _validate_url(url)
+            validated_urls.append(validated)
+
+        # Limit concurrency
+        semaphore = asyncio.Semaphore(args.max_concurrent)
+
+        async def fetch_one(url: str) -> dict[str, Any]:
+            async with semaphore:
+                loop = asyncio.get_event_loop()
+                try:
+                    text = await loop.run_in_executor(
+                        None,
+                        _fetch_url_sync,
+                        url,
+                        args.max_chars,
+                        args.extract_text,
+                        self.ctx.tool_timeout_seconds,
+                    )
+                    return {"url": url, "ok": True, "text": text}
+                except ToolError as exc:
+                    return {"url": url, "ok": False, "error": str(exc)}
+
+        # Fetch all URLs concurrently
+        tasks = [fetch_one(url) for url in validated_urls]
+        results = await asyncio.gather(*tasks)
+
+        succeeded = sum(1 for r in results if r.get("ok"))
+        failed = len(results) - succeeded
+
+        # Build summary output
+        summary_lines = [f"Fetched {len(results)} URL(s):"]
+        for r in results:
+            if r.get("ok"):
+                summary_lines.append(f"  ✓ {r['url']}")
+            else:
+                summary_lines.append(f"  ✗ {r['url']}: {r.get('error', 'unknown error')}")
+
+        summary = "\n".join(summary_lines)
+        text, cap_hit = cap_text(summary, self.ctx.max_output_chars, "batch summary")
+
+        return ToolResult(
+            ok=True,
+            output=text,
+            truncated=cap_hit,
+            data={
+                "total": len(results),
+                "succeeded": succeeded,
+                "failed": failed,
+                "results": [
+                    {
+                        "url": r["url"],
+                        "ok": r.get("ok", False),
+                        "text": r.get("text") if r.get("ok") else None,
+                        "error": r.get("error") if not r.get("ok") else None,
+                    }
+                    for r in results
+                ],
+            },
+        )
