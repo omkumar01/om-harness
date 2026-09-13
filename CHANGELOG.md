@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `fetch_url` and `fetch_batch_url`: public NAT64 DNS answers are no longer
+  rejected as reserved addresses, browser-compatible request headers improve
+  compatibility with public sites, and batch fetches now run concurrently
+  without blocking the event loop.
 - `fetch_url` single mode: fixed `ToolResult` data key collision with event
   bus `truncated` field by renaming internal key to `content_truncated`.
 - Removed batch/sitemap scraping from `fetch_url`; batch processing is now

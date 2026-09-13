@@ -41,8 +41,12 @@ _LOCAL_SUFFIXES = (".localhost", ".local", ".internal")
 # Maximum redirect hops before giving up.
 _MAX_REDIRECTS = 5
 
-# User-Agent used for all outgoing requests.
-_USER_AGENT = "om-harness/1.1.0 (+https://github.com/omkumar01/om-harness)"
+# User-Agent used for all outgoing requests. Some public sites reject
+# application-specific user agents with a non-standard status code.
+_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
 
 # Gzip magic bytes.
 _GZIP_MAGIC = b"\x1f\x8b"
@@ -106,25 +110,11 @@ def _is_blocked_host(hostname: str) -> bool:
                 ip = ipaddress.ip_address(ip_str)
             except ValueError:
                 continue
-            if (
-                ip.is_private
-                or ip.is_loopback
-                or ip.is_link_local
-                or ip.is_reserved
-                or ip.is_multicast
-                or ip.is_unspecified
-            ):
+            if not ip.is_global:
                 return True
         return False
     # It is a literal IP address.
-    return (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_reserved
-        or ip.is_multicast
-        or ip.is_unspecified
-    )
+    return not ip.is_global
 
 
 def _validate_url(url: str) -> str:
@@ -176,7 +166,15 @@ def _parse_charset(content_type: str | None) -> str:
 def _fetch_url_sync(url: str, max_chars: int, extract_text: bool, timeout: float | None) -> str:
     """Synchronous fetch — wrapped in a thread for batch concurrency."""
     validated = _validate_url(url)
-    req = Request(validated, headers={"User-Agent": _USER_AGENT, "Accept-Encoding": "gzip"})
+    req = Request(
+        validated,
+        headers={
+            "User-Agent": _USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip",
+        },
+    )
     try:
         with urlopen(req, timeout=timeout or 30) as resp:
             charset = _parse_charset(resp.headers.get("Content-Type"))
@@ -268,7 +266,8 @@ class FetchBatchUrl(BaseTool[FetchBatchUrlArgs]):
         async def fetch_one(url: str) -> dict[str, Any]:
             async with semaphore:
                 try:
-                    text = _fetch_url_sync(
+                    text = await asyncio.to_thread(
+                        _fetch_url_sync,
                         url,
                         args.max_chars,
                         args.extract_text,

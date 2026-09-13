@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import gzip
+import socket
+import threading
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -63,6 +65,31 @@ def test_validate_url_rejects_local_suffix() -> None:
 def test_validate_url_accepts_public_url() -> None:
     result = _validate_url("https://example.com/docs/page")
     assert result == "https://example.com/docs/page"
+
+
+def test_validate_url_accepts_public_nat64_address(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "om_harness.tools.web.socket.getaddrinfo",
+        lambda hostname, port: [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("64:ff9b::14cf:4952", 0, 0, 0))
+        ],
+    )
+    assert _validate_url("https://github.com/omkumar01/om-harness") == (
+        "https://github.com/omkumar01/om-harness"
+    )
+
+
+def test_validate_url_rejects_private_dns_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "om_harness.tools.web.socket.getaddrinfo",
+        lambda hostname, port: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.10", 0))],
+    )
+    with pytest.raises(ToolError, match="refusing local"):
+        _validate_url("https://public.example.test/")
 
 
 def test_validate_url_strips_userinfo_but_rejects_credentials() -> None:
@@ -297,6 +324,27 @@ async def test_fetch_batch_url_respects_max_concurrent(
     assert result.ok
     assert result.data["total"] == 4
     assert result.data["succeeded"] == 4
+
+
+async def test_fetch_batch_url_runs_fetches_off_event_loop(
+    ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    event_loop_thread = threading.get_ident()
+    fetch_threads: list[int] = []
+
+    def fake_fetch_one(url: str, max_chars: int, extract_text: bool, timeout: float | None) -> str:
+        fetch_threads.append(threading.get_ident())
+        return "content"
+
+    monkeypatch.setattr("om_harness.tools.web._fetch_url_sync", fake_fetch_one)
+
+    result = await FetchBatchUrl(ctx).run(
+        FetchBatchUrl.Args(urls=["https://example.com/page1", "https://example.com/page2"])
+    )
+
+    assert result.data["succeeded"] == 2
+    assert fetch_threads
+    assert all(thread_id != event_loop_thread for thread_id in fetch_threads)
 
 
 async def test_fetch_batch_url_respects_max_chars(
