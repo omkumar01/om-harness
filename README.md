@@ -262,6 +262,8 @@ timeouts; `/timeout agent 300`, `/timeout tool off`, or `/timeout off`
 `~/.om-harness/config/config.toml`. `/config set agent_timeout|tool_timeout
 <seconds|off>` does the same.
 
+refer [docs/slash-commands.md](slash-commands.md) for detailed guide.
+
 ### Skills and plugins
 
 Skills are small instruction packs (`SKILL.md` with a `name` /
@@ -486,6 +488,7 @@ anything that looks off — including the docs.
 - [docs/configuration.md](docs/configuration.md) — config files and env vars
 - [docs/interactive-shell-extensions.md](docs/interactive-shell-extensions.md) — using tools, skills, and plugins in the interactive shell
 - [CONTRIBUTING.md](CONTRIBUTING.md) — development setup and workflows
+- [docs/slash-commands.md](docs/slash-commands.md) - using slash commands guide
 
 ## Project layout
 
