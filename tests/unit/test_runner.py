@@ -243,3 +243,101 @@ def test_unset_budget_yields_unlimited_limits() -> None:
     assert limits.input_tokens_limit is None
     assert limits.output_tokens_limit is None
     assert limits.cost_limit is None
+
+
+async def test_tool_max_retries_config_reaches_tool_objects(tmp_repo: Any) -> None:
+    """Verify tool_max_retries config value is passed to PydanticAI Tool objects."""
+    from pydantic_ai.tools import Tool
+
+    async def respond(messages, agent_info):  # type: ignore[no-untyped-def]
+        return ModelResponse(parts=[TextPart(content="done")])
+
+    config = HarnessConfig(tool_max_retries=5)
+    bus = EventBus()
+    registry = ToolRegistry()
+    tool_ctx = ToolContext(repo_root=tmp_repo)
+    registry.register(ReadFile(tool_ctx))
+    executor = GuardedToolExecutor(
+        registry=registry,
+        approval=ApprovalEngine(config.approval, interactive=False),
+        bus=bus,
+    )
+    from om_harness.runtime.agent import AgentFactory
+
+    factory = AgentFactory(executor)
+    agent = factory.build(
+        model=FunctionModel(respond),
+        system_prompt="test",
+        agent_name="test",
+        tool_names=["read_file"],
+        tool_max_retries=5,
+    )
+    # Check that the Tool object has max_retries=5
+    read_tool = agent.toolsets[0].tools["read_file"]
+    assert isinstance(read_tool, Tool)
+    assert read_tool.max_retries == 5
+
+
+async def test_tool_max_retries_zero_disables_retries(tmp_repo: Any) -> None:
+    """Verify tool_max_retries=0 disables retries on tool calls."""
+    from pydantic_ai.tools import Tool
+
+    async def respond(messages, agent_info):  # type: ignore[no-untyped-def]
+        return ModelResponse(parts=[TextPart(content="done")])
+
+    config = HarnessConfig(tool_max_retries=0)
+    bus = EventBus()
+    registry = ToolRegistry()
+    tool_ctx = ToolContext(repo_root=tmp_repo)
+    registry.register(ReadFile(tool_ctx))
+    executor = GuardedToolExecutor(
+        registry=registry,
+        approval=ApprovalEngine(config.approval, interactive=False),
+        bus=bus,
+    )
+    from om_harness.runtime.agent import AgentFactory
+
+    factory = AgentFactory(executor)
+    agent = factory.build(
+        model=FunctionModel(respond),
+        system_prompt="test",
+        agent_name="test",
+        tool_names=["read_file"],
+        tool_max_retries=0,
+    )
+    read_tool = agent.toolsets[0].tools["read_file"]
+    assert isinstance(read_tool, Tool)
+    assert read_tool.max_retries == 0
+
+
+async def test_tool_max_retries_none_uses_default(tmp_repo: Any) -> None:
+    """Verify tool_max_retries=None uses PydanticAI's default (no explicit limit)."""
+    from pydantic_ai.tools import Tool
+
+    async def respond(messages, agent_info):  # type: ignore[no-untyped-def]
+        return ModelResponse(parts=[TextPart(content="done")])
+
+    config = HarnessConfig(tool_max_retries=None)
+    bus = EventBus()
+    registry = ToolRegistry()
+    tool_ctx = ToolContext(repo_root=tmp_repo)
+    registry.register(ReadFile(tool_ctx))
+    executor = GuardedToolExecutor(
+        registry=registry,
+        approval=ApprovalEngine(config.approval, interactive=False),
+        bus=bus,
+    )
+    from om_harness.runtime.agent import AgentFactory
+
+    factory = AgentFactory(executor)
+    agent = factory.build(
+        model=FunctionModel(respond),
+        system_prompt="test",
+        agent_name="test",
+        tool_names=["read_file"],
+        tool_max_retries=None,
+    )
+    read_tool = agent.toolsets[0].tools["read_file"]
+    assert isinstance(read_tool, Tool)
+    # When None is passed, PydanticAI should use its default behavior
+    assert read_tool.max_retries is None

@@ -157,4 +157,4 @@ class AgentFactory:
         function_schema = _pa_function_schema.function_schema(
             _invoke, GenerateJsonSchema, tool_name=tool.name
         )
-        return Tool(_invoke, function_schema=function_schema)
+        return Tool(_invoke, function_schema=function_schema, max_retries=tool_max_retries)
