@@ -16,7 +16,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, ClassVar, Generic, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 ArgsT = TypeVar("ArgsT", bound=BaseModel)
 
@@ -48,6 +48,8 @@ class ToolResult(BaseModel):
 class ToolContext(BaseModel):
     """Shared execution context handed to every tool instance."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     repo_root: Path
     # None disables the per-call timeout (asyncio.wait_for semantics).
     tool_timeout_seconds: float | None = 60.0
@@ -56,6 +58,8 @@ class ToolContext(BaseModel):
     # Environment snapshot for subprocesses. Provider API keys are stripped
     # before this is populated; tools must never see credentials.
     env: dict[str, str] = Field(default_factory=dict)
+    # Optional task executor for dispatching sub-tasks (set by Harness)
+    task_executor: Any = None
 
 
 def resolve_in_repo(ctx: ToolContext, path_str: str) -> Path:

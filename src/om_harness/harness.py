@@ -48,6 +48,7 @@ from om_harness.skills import Skill, discover_skills
 from om_harness.tools import build_default_registry
 from om_harness.tools.approval import ApprovalEngine
 from om_harness.tools.base import ToolContext
+from om_harness.tools.parallel import DispatchParallelTool
 from om_harness.tools.registry import GuardedToolExecutor
 from om_harness.tools.skill import SkillTool
 
@@ -146,6 +147,7 @@ class Harness:
             repo_root=self.repo_root,
             tool_timeout_seconds=self.config.tool_timeout_seconds,
             max_file_read_chars=self.config.context.max_file_read_chars,
+            task_executor=None,  # Will be set after runner is created
         )
         self.registry = build_default_registry(self.tool_ctx)
         if self.skills:
@@ -164,6 +166,10 @@ class Harness:
             config=self.config,
             bus=self.bus,
         )
+        # Update tool_ctx with the runner (TaskExecutor) now that it's created
+        self.tool_ctx.task_executor = self.runner
+        # Register the dispatch_parallel tool
+        self.registry.register(DispatchParallelTool(self.tool_ctx, self.runner))
         self.coordinator = Coordinator(runner=self.runner, config=self.config, bus=self.bus)
 
     # -- repo setup ----------------------------------------------------------

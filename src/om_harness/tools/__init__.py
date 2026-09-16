@@ -26,6 +26,7 @@ from om_harness.tools.git import (
     GitStash,
     GitStatus,
 )
+from om_harness.tools.parallel import DispatchParallelTool
 from om_harness.tools.quality import FormatCode, LintCode
 from om_harness.tools.registry import GuardedToolExecutor, ToolRegistry
 from om_harness.tools.shell import RunShell
@@ -73,6 +74,7 @@ __all__ = [
     "ApprovalEngine",
     "BaseTool",
     "CountLines",
+    "DispatchParallelTool",
     "EditFile",
     "FetchBatchUrl",
     "FetchUrl",
