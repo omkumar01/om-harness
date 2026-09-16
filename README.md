@@ -135,7 +135,9 @@ decision is visible.
   status/diff/log/show/add/commit/restore, **branch management**,
   **stash**, **blame**, **remote management**, **log graph**, test-runner
   detection and execution, auto-detect formatter/linter, **web content
-  fetching** (single URL + explicit batch URL fetching), repo info — all schema'd,
+  fetching** (single URL + explicit batch URL fetching), **parallel task
+  dispatch** (`dispatch_parallel` — fan-out independent sub-tasks with full
+  tool access, supports map-reduce), repo info — all schema'd,
   timeout-bounded, and output-capped.
 - **Durable sessions**: state in `.om-harness/` (gitignored), atomic writes,
   checkpoints, and `resume` for interrupted work.

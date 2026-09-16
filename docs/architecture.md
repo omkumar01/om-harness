@@ -245,8 +245,8 @@ Every tool declares one of three permission levels:
 
 | Level | Tools | Behavior |
 |---|---|---|
-| `read_only` | list/read/search files, git status/diff/log/show, repo info, skill | always allowed |
-| `mutating` | write/edit file, run_shell, run_tests, git add/commit | gated by policy |
+| `read_only` | list/read/search files, git status/diff/log/show, repo info, skill, fetch_url, fetch_batch_url | always allowed |
+| `mutating` | write/edit file, run_shell, run_tests, git add/commit, dispatch_parallel | gated by policy |
 | `destructive` | git restore (discards work) | gated by policy, never auto-approved |
 
 Policies (config `approval.policy`, or `--approval-policy`):

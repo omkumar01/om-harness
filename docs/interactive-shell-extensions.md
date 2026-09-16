@@ -73,6 +73,7 @@ Type `/` to trigger the autocomplete popup for slash commands.
 · run_tests (mutating): Detect and run the repository's test suite (pytest or npm test).
 · format_code (mutating): Auto-detect and run the repository's formatter.
 · lint_code (mutating): Auto-detect and run the repository's linter.
+· dispatch_parallel (mutating): Fan-out independent sub-tasks to run in parallel (or sequentially). Each sub-task runs in its own agent with isolated context and full tool access. Supports explicit task lists or dynamic map-reduce (template + items).
 · git_restore (destructive): DISCARD uncommitted changes to a file …
 ```
 
@@ -114,6 +115,7 @@ Type `/` to trigger the autocomplete popup for slash commands.
 | `run_tests` | mutating | Detect and run the repository's test suite (pytest or npm test) |
 | `format_code` | mutating | Auto-detect and run the repository's formatter |
 | `lint_code` | mutating | Auto-detect and run the repository's linter |
+| `dispatch_parallel` | mutating | Fan-out independent sub-tasks to run in parallel (or sequentially). Each sub-task runs in its own agent with isolated context and full tool access. Supports explicit task lists or dynamic map-reduce (template + items). |
 
 #### Testing & Execution
 
@@ -127,6 +129,7 @@ Type `/` to trigger the autocomplete popup for slash commands.
 |---|---|---|
 | `fetch_url` | read_only | Fetch a single URL and extract readable text from HTML (markdown-like) |
 | `fetch_batch_url` | read_only | Fetch multiple URLs concurrently with configurable concurrency |
+| `dispatch_parallel` | mutating | Fan-out independent sub-tasks to run in parallel (or sequentially). Each sub-task runs in its own agent with isolated context and full tool access. Supports explicit task lists or dynamic map-reduce (template + items). |
 | `repo_info` | read_only | Summarize repository: branch, HEAD, languages, file counts |
 
 #### Conditional

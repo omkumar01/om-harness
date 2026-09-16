@@ -2,13 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.2.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.0] - 2026-09-06
 
 ### Added
 
+- **New tool**: `dispatch_parallel` — fan-out independent sub-tasks to run in parallel
+  (or sequentially). Each sub-task runs in its own agent with isolated context and
+  full tool access. Supports explicit task lists or dynamic map-reduce (template +
+  items). Returns aggregated results with per-task summaries, findings, and token
+  usage. Concurrency bounded by `max_concurrency` config (or per-dispatch override).
 - **10 new tools**: `git_branch` (list/create/switch/delete branches),
   `git_stash` (save/pop/list/drop stashed changes), `git_log_graph` (commit
   history as a visual graph), `git_blame` (line-by-line blame attribution),
@@ -34,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rejected as reserved addresses, browser-compatible request headers improve
   compatibility with public sites, and batch fetches now run concurrently
   without blocking the event loop.
+- **Tool retries**: `tool_max_retries` config (default: 3) is now correctly
+  passed to PydanticAI Tool objects so automatic retries work for failed tool
+  calls. Previously the config was wired through the system but not applied to
+  the Tool constructor.
 - `fetch_url` single mode: fixed `ToolResult` data key collision with event
   bus `truncated` field by renaming internal key to `content_truncated`.
 - Removed batch/sitemap scraping from `fetch_url`; batch processing is now
