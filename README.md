@@ -218,15 +218,24 @@ om Fixed add() in calc.py — tests pass.
   the approval mode, the active provider and model (what the next turn will
   actually use), the thinking level, and a live context
   gauge (`context ▮▮▮▯▯… 32k/200k`) at all times — plus the `Alt+M` model
-  selector shortcut.
+  selector shortcut. The gauge shows the current context size (the latest
+  model call's input tokens), updates live while the model streams, and its
+  ceiling is the active model's real context window (from `models.json`
+  `contextWindow` or a built-in lookup).
 - **Live activity**: tool calls, commands, and approvals stream as they
-  happen; per-turn summaries show files read, files modified, commands run,
-  and tokens spent. Replies stream token-by-token from streaming models.
+  happen — every tool call is visible in all verbosity modes; per-turn
+  summaries show files read, files modified, commands run, and tokens spent.
+  Replies stream token-by-token from streaming models.
 - **Live thinking & file changes**: the model's reasoning streams as it
-  thinks (`/thinking` toggles), and every file the agent writes or edits
-  renders a real-time diff (`✎ path` with +/− lines, or a new-file marker).
-- **Slash commands with hints**: type `/` for an autocomplete popup with
-  descriptions; the status bar shows argument hints while you type.
+  thinks, and every file the agent writes or edits renders a real-time diff
+  (`✎ path` with +/− lines, or a new-file marker). `/thinking` (no args)
+  cycles the display: inline stream → minimized (`◐ thinking…` with a
+  per-turn token summary) → off; `/thinking inline` restores the full stream.
+  When a provider doesn't stream reasoning, thinking recovered from the
+  completed run is still shown inline.
+- **Never lose your session**: when a run finishes or you exit the shell, a
+  resume command is printed (`om-harness --resume --session <id>`)
+  so interrupted or completed work can always be continued.
 
 ### Keybindings
 
@@ -246,11 +255,13 @@ om Fixed add() in calc.py — tests pass.
 
 ### Slash commands
 
-`/model [name]` (no args: arrow-key selector) · `/thinking [level]` ·
+`/model [name]` (no args: arrow-key selector) · `/thinking [inline|minimized|off|low|medium|high]`
+(no args: cycle display inline → minimized → off; `inline`/`minimized` set the
+display, `off|low|medium|high` set the model level) ·
 `/config` · `/config set <key> <value>` · `/timeout [agent|tool] <seconds|off>` ·
 `/providers` · `/tools` ·
 `/skills` · `/skill <name> [args]` · `/plugins` ·
-`/status` · `/sessions` · `/checkpoint [label]` · `/memory [list [tag] | recall <query> | clear]` · `/setup` · `/verbose` ·
+`/status` · `/sessions` · `/checkpoint [label]` · `/resume` · `/memory [list [tag] | recall <query> | clear]` · `/setup` · `/verbose` ·
 `/help` · `/exit`.
 
 `/setup` walks you through provider configuration (including adding a

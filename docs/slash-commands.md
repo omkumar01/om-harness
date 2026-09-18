@@ -13,7 +13,7 @@ Slash commands are typed directly into the REPL prompt (prefixed with `/`) and p
 | Command | Description | Arguments | Examples |
 |---------|-------------|-----------|----------|
 | `/model` | Pick or set the active model | `[provider:model]` | `/model anthropic:claude-3-opus` |
-| `/thinking` | Show or set the thinking level | `[off\|low\|medium\|high]` | `/thinking high` |
+| `/thinking` | Cycle thinking display (inline / minimized / off) or set model level | `[inline\|minimized\|off\|low\|medium\|high]` | `/thinking inline` |
 | `/mode` | Cycle approval mode (ask / auto / deny) | *(none)* | `/mode` |
 | `/plan` | Toggle plan mode (read-only research, then approve to implement) | `[on\|off]` | `/plan on` |
 | `/config` | Show or change configuration | `[set <key> <value>]` | `/config set model anthropic:claude-3-opus` |
@@ -26,6 +26,7 @@ Slash commands are typed directly into the REPL prompt (prefixed with `/`) and p
 | `/status` | Session, checkpoint, and provider status | *(none)* | `/status` |
 | `/sessions` | List recent sessions | *(none)* | `/sessions` |
 | `/checkpoint` | Save a checkpoint now | `[label]` | `/checkpoint "before refactor"` |
+| `/resume` | Show session, checkpoints, and the resume command | *(none)* | `/resume` |
 | `/memory` | Manage project memory (list/recall/clear) | `[list [tag] \| recall <query> \| clear]` | `/memory list` |
 | `/setup` | Interactive setup wizard (providers, model, modes) | *(none)* | `/setup` |
 | `/verbose` | Cycle verbosity (compact / verbose / debug) | *(none)* | `/verbose` |
@@ -225,6 +226,24 @@ Creates a named checkpoint of the current session state. Without arguments, uses
   ```
   /checkpoint "before major refactor"
   ```
+
+---
+
+### `/resume` — Resume the Session
+
+**Usage:** `/resume`
+
+Shows the current session (id, status, message and run counts), the latest
+checkpoints, and the exact command to continue this session later:
+
+```
+session a1b2c3d4e5f6 (active) · 4 messages · 2 run(s)
+⌘ after-a1b2c3d4: main: completed - ...
+to resume: om-harness --resume --session a1b2c3d4e5f6  ·  cp: cp-a1b2c3d4
+```
+
+The same resume hint is printed when a run finishes and when you exit the
+shell, so interrupted or completed work can always be continued.
 
 ---
 

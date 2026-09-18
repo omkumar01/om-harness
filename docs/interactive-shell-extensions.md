@@ -441,9 +441,13 @@ While a turn runs, the shell renders events as they happen through a pump that
 polls the `EventBus` every 50ms:
 
 - **Model replies** stream token-by-token (green text). Thinking deltas stream
-  in dim italic if `/thinking` is on or `Ctrl+T` has raised the level.
-- **Tool calls** appear as `⚙ tool name(args)` when they start and `⚙ done` /
-  `✖ failed` when they finish.
+  in dim italic, collapse to a compact indicator, or hide — depending on the
+  thinking display mode (`/thinking` cycles inline → minimized → off;
+  `/thinking inline` restores the full stream). Providers that never stream
+  reasoning still show thinking recovered from the completed run. The model's
+  thinking *level* is set with `/thinking <level>` or `Ctrl+T`.
+- **Tool calls** appear as `⚙ tool name(args)` when they start — in every
+  verbosity mode — and `⚙ done` / `✖ failed` when they finish.
 - **File changes** render a real-time git diff — `✎ path` with `+`/`−` lines
   for tracked files, or `(new file — not yet tracked)` for untracked ones.
 - **Shell commands** show a collapsed output preview (last 3 lines) with a
@@ -451,6 +455,11 @@ polls the `EventBus` every 50ms:
 - **Denials** and **approvals** appear with `⛔` / `?` icons.
 - **Per-turn summary** at the bottom of each turn shows files read, files
   modified, commands run, and token usage.
+
+The status bar's context gauge reflects token usage live while the model
+streams, and its ceiling is the active model's real context window (from
+`models.json` `contextWindow`, or a built-in lookup for known models) —
+not a static default.
 
 All of this works in every flow — chat, `om-harness run`, and `om-harness agent`
 — because they all publish through the same `EventBus`.
