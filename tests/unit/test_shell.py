@@ -463,3 +463,118 @@ def test_slash_mode_cycles_approval(tmp_path: Any, home: Any) -> None:
     assert repl._slash_command("/mode")
     after = harness.config.approval.policy.value
     assert after != before
+
+
+# -- dynamic context window -------------------------------------------------
+
+
+def test_context_window_lookup_built_in(home: Any) -> None:
+    """Built-in models have known context windows for the status gauge."""
+    from om_harness.providers.base import CONTEXT_WINDOWS
+
+    assert CONTEXT_WINDOWS["gpt-4o"] == 200_000
+    assert CONTEXT_WINDOWS["gpt-4o-mini"] == 200_000
+    assert CONTEXT_WINDOWS["gemini-2.0-flash"] == 1_000_000
+
+
+def test_model_context_window_from_models_json(tmp_path: Any, home: Any) -> None:
+    """ProviderRegistry.model_context_window reads models.json contextWindow."""
+    import json
+    import subprocess
+
+    subprocess.run(
+        ["git", "init", "-q"], cwd=tmp_path, check=True, capture_output=True, shell=False
+    )
+    (tmp_path / "models.json").write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "lm-studio": {
+                        "baseUrl": "http://127.0.0.1:8080/v1",
+                        "api": "openai-completions",
+                        "allowLocal": True,
+                        "models": [{"id": "big-model", "contextWindow": 512000}],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    from om_harness.harness import Harness
+
+    harness = Harness(repo_root=tmp_path, env={})
+    assert harness.provider_registry.model_context_window("lm-studio:big-model") == 512_000
+
+
+def test_model_context_window_unknown_returns_none(home: Any) -> None:
+    """Unknown models return None (caller falls back to default)."""
+    from om_harness.providers.registry import ProviderRegistry
+
+    registry = ProviderRegistry(env={}, custom=None)
+    assert registry.model_context_window("openai:gpt-9999-unknown") is None
+
+
+def test_context_max_uses_model_window(tmp_path: Any, home: Any) -> None:
+    """_context_max returns the model's window, not the static 200k default."""
+    import json
+    import subprocess
+
+    subprocess.run(
+        ["git", "init", "-q"], cwd=tmp_path, check=True, capture_output=True, shell=False
+    )
+    (tmp_path / "models.json").write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "lm-studio": {
+                        "baseUrl": "http://127.0.0.1:8080/v1",
+                        "api": "openai-completions",
+                        "allowLocal": True,
+                        "models": [{"id": "big-model", "contextWindow": 512000}],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    from om_harness.config.user_settings import apply_config_update
+    from om_harness.harness import Harness
+    from om_harness.ui.repl import ChatRepl
+
+    harness = Harness(repo_root=tmp_path, env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id)
+    apply_config_update(harness, "model", "lm-studio:big-model")
+    assert repl._context_max() == 512_000
+
+
+def test_usage_bar_formats_millions() -> None:
+    """Large windows/usage render as M (73.9M), not unreadable k-chains."""
+    from om_harness.ui.components import usage_bar
+
+    bar = usage_bar(500_000, 1_000_000)
+    assert "500.0k" in bar or "500k" in bar
+    assert "1.0M" in bar
+    huge = usage_bar(73_934_000, 1_000_000)
+    assert "73.9M" in huge
+    assert "1.0M" in huge
+
+
+def test_usage_bar_used_tokens_keep_precision() -> None:
+    """Used tokens render with one-decimal precision below 100k — the coarse
+    formatter turned 1,500 into '2k' (rounding up!) and 12,340 into '12k'."""
+    from om_harness.ui.components import usage_bar
+
+    assert "1.5k/200k" in usage_bar(1_500, 200_000)
+    assert "12.3k/200k" in usage_bar(12_340, 200_000)
+    # Coarse again above 100k, and the ceiling stays coarse.
+    assert "150k/200k" in usage_bar(150_000, 200_000)
+    assert "0/200k" in usage_bar(0, 200_000)
+
+
+def test_resume_hint_is_bare_resume_command() -> None:
+    """The hint must be the shell-resume form that actually runs:
+    `om-harness --resume --session <id>` (opens the interactive shell)."""
+    from om_harness.ui.components import resume_hint
+
+    assert resume_hint("96fa4dab1f56") == "om-harness --resume --session 96fa4dab1f56"

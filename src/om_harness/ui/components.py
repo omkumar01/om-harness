@@ -72,23 +72,23 @@ def outcome_to_summary(outcome: RunOutcome) -> RunSummaryView:
 
 
 _ICONS = {
-    EventType.RUN_STARTED: "▶",
-    EventType.RUN_COMPLETED: "✔",
-    EventType.RUN_FAILED: "✖",
-    EventType.RUN_CANCELLED: "■",
-    EventType.PLAN_CREATED: "≡",
-    EventType.AGENT_STARTED: "…",
-    EventType.AGENT_COMPLETED: "✔",
-    EventType.AGENT_FAILED: "✖",
-    EventType.HANDOFF: "⇄",
-    EventType.TOOL_CALL_STARTED: "⚙",
-    EventType.TOOL_CALL_COMPLETED: "⚙",
-    EventType.TOOL_CALL_FAILED: "✖",
-    EventType.TOOL_CALL_DENIED: "⛔",
+    EventType.RUN_STARTED: "\u25b6",
+    EventType.RUN_COMPLETED: "\u2714",
+    EventType.RUN_FAILED: "\u2716",
+    EventType.RUN_CANCELLED: "\u25a0",
+    EventType.PLAN_CREATED: "\u2261",
+    EventType.AGENT_STARTED: "\u2026",
+    EventType.AGENT_COMPLETED: "\u2714",
+    EventType.AGENT_FAILED: "\u2716",
+    EventType.HANDOFF: "\u21c4",
+    EventType.TOOL_CALL_STARTED: "\u2699",
+    EventType.TOOL_CALL_COMPLETED: "\u2699",
+    EventType.TOOL_CALL_FAILED: "\u2716",
+    EventType.TOOL_CALL_DENIED: "\u26d4",
     EventType.APPROVAL_REQUESTED: "?",
-    EventType.APPROVAL_GRANTED: "☑",
-    EventType.APPROVAL_DENIED: "✖",
-    EventType.CHECKPOINT_SAVED: "⌘",
+    EventType.APPROVAL_GRANTED: "\u2611",
+    EventType.APPROVAL_DENIED: "\u2716",
+    EventType.CHECKPOINT_SAVED: "\u2318",
     EventType.USAGE: "$",
     EventType.WARNING: "!",
 }
@@ -219,9 +219,19 @@ class TurnActivity(BaseModel):
         return " · ".join(parts) if parts else "no tool activity"
 
 
-_MUTATING_TOOLS = {"write_file", "edit_file"}
+_MUTATING_TOOLS = {"write_file", "edit_file", "format_code", "lint_code"}
 _READ_TOOLS = {"read_file"}
-_COMMAND_TOOLS = {"run_shell", "run_tests"}
+_COMMAND_TOOLS = {
+    "run_shell",
+    "run_tests",
+    "git_branch",
+    "git_stash",
+    "git_remote",
+    "format_code",
+    "lint_code",
+    "fetch_url",
+    "fetch_batch_url",
+}
 
 
 def turn_activity(events: list[Event]) -> TurnActivity:
@@ -252,25 +262,31 @@ def turn_activity(events: list[Event]) -> TurnActivity:
 
 
 def usage_bar(used_tokens: int, max_tokens: int, width: int = 10) -> str:
-    """Ten-segment context gauge: ▮▮▮▯▯▯ 3k/20k."""
+    """Ten-segment context gauge: \u25ae\u25ae\u25ae\u25af\u25af 3k/20k."""
     if max_tokens <= 0:
         ratio = 0.0
     else:
         ratio = max(0.0, min(1.0, used_tokens / max_tokens))
     filled = round(ratio * width)
-    bar = "▮" * filled + "▯" * (width - filled)
+    bar = "\u25ae" * filled + "\u25af" * (width - filled)
 
-    def fmt(n: int) -> str:
+    def fmt(n: int, *, precise: bool = False) -> str:
+        """Compact token count. ``precise`` (used tokens) keeps one-decimal
+        resolution below 100k so 1,500 never rounds up to a bogus '2k'."""
+        if n >= 1_000_000:
+            return f"{n / 1_000_000:.1f}M"
+        if precise and 1_000 <= n < 100_000:
+            return f"{n / 1000:.1f}k"
         return f"{n / 1000:.0f}k" if n >= 1000 else str(n)
 
-    return f"{bar} {fmt(used_tokens)}/{fmt(max_tokens)}"
+    return f"{bar} {fmt(used_tokens, precise=True)}/{fmt(max_tokens)}"
 
 
 def header_line(provider: str, model: str, mode: str, thinking: str, width: int = 64) -> str:
     """Top border of the input box with state baked in."""
-    state = f"om · {provider} · {model} · {mode} · {thinking}"
+    state = f"om \u00b7 {provider} \u00b7 {model} \u00b7 {mode} \u00b7 {thinking}"
     if len(state) > width - 4:
-        state = state[: width - 7] + "…"
+        state = state[: width - 7] + "\u2026"
     filler = "─" * max(0, width - len(state) - 4)
     return f"╭─ {state} {filler}╮"
 
@@ -283,35 +299,53 @@ def status_bar(
     used_tokens: int,
     max_tokens: int,
     hint: str | None = None,
+    thinking_active: bool = False,
 ) -> str:
     """Always-on status line: approval mode, provider, model, thinking,
-    context gauge, hints — visible at all times."""
+    context gauge, hints — visible at all times.
+
+    ``thinking_active`` adds a ``\u25d0`` pulse prefix when reasoning is
+    currently streaming in minimized display mode.
+    """
+    thinking_segment = f"\u25d0 {thinking}" if thinking_active else thinking
     parts = [
         mode,
         f"provider {provider}",
         f"model {model}",
-        f"thinking {thinking}",
+        f"thinking {thinking_segment}",
         f"context {usage_bar(used_tokens, max_tokens)}",
     ]
     if hint:
         parts.append(hint)
     else:
         parts.append("alt+M model · ^T thinking · ⇧Tab mode · ^G help")
-    return "  ·  ".join(parts)
+    return "  \u00b7  ".join(parts)
+
+
+def resume_hint(session_id: str, checkpoint_id: str | None = None) -> str:
+    """One-line resume command for a session (suitable for status/footer).
+
+    Uses the bare shell-resume form: it reopens the interactive shell
+    continuing that session, no new goal required.
+    """
+    base = f"om-harness --resume --session {session_id}"
+    if checkpoint_id:
+        base += f"  \u00b7  cp: {checkpoint_id}"
+    return base
 
 
 def welcome_panel(version: str, model: str, providers: list[str], first_run: bool) -> str:
     """Plain-text body of the welcome panel (renderer wraps it in a Panel)."""
-    provider_text = ", ".join(providers) if providers else "none — add keys or models.json"
+    provider_text = ", ".join(providers) if providers else "none \u2014 add keys or models.json"
     lines = [
-        f"✦ om-harness {version}",
+        f"\u2726 om-harness {version}",
         f"model: {model}",
         f"providers: {provider_text}",
         "",
         "type a request, / for commands, /setup for guided configuration",
     ]
     if first_run:
-        lines.insert(1, "first run — config created under ~/.om-harness/")
+        lines.insert(1, "first run \u2014 config created under ~/.om-harness/")
     return "\n".join(lines)
 
 
@@ -324,6 +358,7 @@ __all__ = [
     "event_to_display",
     "header_line",
     "outcome_to_summary",
+    "resume_hint",
     "status_bar",
     "turn_activity",
     "usage_bar",

@@ -244,12 +244,22 @@ def test_slash_model_selector_fallback(tmp_path: Any, home: Any, capsys: Any) ->
     assert harness.config.routing.default_model  # nothing broken
 
 
-def test_slash_thinking_toggles_display(tmp_path: Any, home: Any, capsys: Any) -> None:
+def test_thinking_display_cycles(tmp_path: Any, home: Any, capsys: Any) -> None:
+    """`/thinking` (no args) cycles: inline -> minimized -> off -> inline."""
     repl, _ = _repl(tmp_path, home)
-    assert repl.show_thinking is True  # on by default
+    assert repl.thinking_display == "inline"
+    # inline -> minimized
     assert repl._slash_command("/thinking")
-    assert repl.show_thinking is False
-    assert "thinking display off" in capsys.readouterr().out
+    assert repl.thinking_display == "minimized"
+    assert "collapsed" in capsys.readouterr().out
+    # minimized -> off
+    assert repl._slash_command("/thinking")
+    assert repl.thinking_display == "off"
+    assert "off" in capsys.readouterr().out
+    # off -> inline
+    assert repl._slash_command("/thinking")
+    assert repl.thinking_display == "inline"
+    assert "full" in capsys.readouterr().out
 
 
 def test_slash_thinking_sets_level(tmp_path: Any, home: Any, capsys: Any) -> None:
@@ -718,3 +728,283 @@ def test_non_approval_message_keeps_plan_mode(
     assert sent == ["investigate why the tests fail"]
     assert repl.plan_mode is True
     assert harness.config.approval.policy == "deny"
+
+
+# -- thinking minimize, tool visibility, incremental usage, /resume ---------
+
+
+def test_thinking_minimized_no_inline_stream(
+    tmp_path: Any, home: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    """In minimized mode, thinking deltas are not printed inline but a compact
+    indicator line is shown instead."""
+    from om_harness.models.events import EventType, make_event
+
+    harness = Harness(repo_root=_repo(tmp_path), env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id)
+    repl.thinking_display = "minimized"
+
+    async def stream_then_reply(*args: Any, **kwargs: Any) -> str:
+        harness.bus.publish_sync(
+            make_event(
+                EventType.MESSAGE_DELTA,
+                session_id=repl.session_id,
+                kind="thinking",
+                delta="reasoning deeply about the approach",
+            )
+        )
+        harness.bus.publish_sync(
+            make_event(
+                EventType.MESSAGE_DELTA,
+                session_id=repl.session_id,
+                kind="text",
+                delta="the reply",
+            )
+        )
+        return "the reply"
+
+    monkeypatch.setattr(harness, "chat_turn", stream_then_reply)
+    repl._pin_status_bar = False
+    repl.run_turn("hello")
+    out = capsys.readouterr().out
+    assert "reasoning deeply" not in out  # NOT streamed inline in minimized mode
+    assert "◐" in out  # compact thinking indicator shown
+    assert "the reply" in out  # text still streamed
+
+
+def test_total_usage_updated_during_pump(
+    tmp_path: Any, home: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    """The pump updates total_usage incrementally so the status bar shows
+    live context during streaming, not 0 until the turn ends."""
+    import asyncio
+
+    from om_harness.models.events import EventType, make_event
+
+    harness = Harness(repo_root=_repo(tmp_path), env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id, verbosity=Verbosity.verbose)
+    repl._pin_status_bar = False
+
+    captured: dict[str, int] = {}
+
+    async def stream_with_usage(*args: Any, **kwargs: Any) -> str:
+        harness.bus.publish_sync(
+            make_event(
+                EventType.MODEL_CALL_COMPLETED,
+                session_id=repl.session_id,
+                model="mock:echo",
+                input_tokens=500,
+                output_tokens=100,
+            )
+        )
+        await asyncio.sleep(0.2)  # let the pump process
+        captured["input"] = repl.total_usage.input_tokens
+
+    monkeypatch.setattr(harness, "chat_turn", stream_with_usage)
+    repl.run_turn("hello")
+
+    # During the turn, total_usage should already be non-zero (pump updated it)
+    assert captured["input"] > 0, "total_usage should update during pump, not just after turn"
+    # After the turn, total_usage should equal exactly 500 (no double-counting)
+    assert repl.total_usage.input_tokens == 500
+    assert repl.total_usage.output_tokens == 100
+
+
+def test_non_command_tool_call_visible_in_compact(
+    tmp_path: Any, home: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    """TOOL_CALL_STARTED for non-change/non-command tools (e.g. read_file)
+    is visible live in compact mode, not just in verbose/debug."""
+    from om_harness.models.events import EventType, make_event
+
+    harness = Harness(repo_root=_repo(tmp_path), env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id)
+    # Default verbosity is compact
+
+    async def noop_turn(*args: Any, **kwargs: Any) -> str:
+        harness.bus.publish_sync(
+            make_event(
+                EventType.TOOL_CALL_STARTED,
+                session_id=repl.session_id,
+                tool="read_file",
+                arguments={"path": "test.py"},
+            )
+        )
+        return "done"
+
+    monkeypatch.setattr(harness, "chat_turn", noop_turn)
+    repl._pin_status_bar = False
+    repl.run_turn("read test.py")
+    out = capsys.readouterr().out
+    assert "⚙" in out
+    assert "read_file" in out
+
+
+def test_slash_resume_command(tmp_path: Any, home: Any, capsys: Any) -> None:
+    """`/resume` shows the current session, checkpoints, and resume command."""
+    repl, _ = _repl(tmp_path, home)
+    repl.run_turn("hello")
+    capsys.readouterr()  # clear turn output
+    assert repl._slash_command("/resume")
+    out = capsys.readouterr().out
+    assert repl.session_id in out
+    assert "resume" in out.lower()
+
+
+def test_repl_exit_shows_resume_hint(
+    tmp_path: Any, home: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    """When the REPL exits (EOFError), a resume command is printed."""
+    from om_harness.harness import Harness
+    from om_harness.ui.repl import ChatRepl
+
+    harness = Harness(repo_root=_repo(tmp_path), env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id)
+    repl._pin_status_bar = False
+
+    # Run one turn so there's something to resume.
+    async def noop(*args: Any, **kwargs: Any) -> str:
+        return "ok"
+
+    monkeypatch.setattr(harness, "chat_turn", noop)
+    repl.run_turn("hello")
+    capsys.readouterr()
+
+    class _FakeSession:
+        def prompt(self, **kwargs: Any) -> str:
+            raise EOFError
+
+    monkeypatch.setattr(repl, "_make_prompt_session", lambda: _FakeSession())
+    repl.run_forever()
+    out = capsys.readouterr().out
+    assert repl.session_id in out
+    assert "resume" in out.lower()
+
+
+def test_context_gauge_shows_latest_model_call(
+    tmp_path: Any, home: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    """The context gauge reflects the CURRENT context size (the latest model
+    call's input tokens), not the cumulative session spend — which grows
+    without bound and saturated the gauge (e.g. 73934k/1000k)."""
+    import asyncio
+
+    from om_harness.models.events import EventType, make_event
+
+    harness = Harness(repo_root=_repo(tmp_path), env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id)
+    repl._pin_status_bar = False
+
+    async def two_calls(*args: Any, **kwargs: Any) -> str:
+        for tokens in (500, 700):
+            harness.bus.publish_sync(
+                make_event(
+                    EventType.MODEL_CALL_COMPLETED,
+                    session_id=repl.session_id,
+                    model="mock:echo",
+                    input_tokens=tokens,
+                    output_tokens=10,
+                )
+            )
+        await asyncio.sleep(0.2)
+        return "reply"
+
+    monkeypatch.setattr(harness, "chat_turn", two_calls)
+    repl.run_turn("hello")
+
+    # Gauge: context as last seen by the model = latest call's input.
+    assert repl._context_used() == 700
+    # Cumulative spend tracking is unchanged (sum for the tok summaries).
+    assert repl.total_usage.input_tokens == 1200
+
+
+def test_thinking_inline_sets_display_mode(tmp_path: Any, home: Any, capsys: Any) -> None:
+    """`/thinking inline` and `/thinking minimized` set the DISPLAY mode;
+    previously they were misrouted to the model level and failed validation,
+    leaving thinking hidden (display stuck on off/minimized)."""
+    repl, harness = _repl(tmp_path, home)
+    repl.thinking_display = "off"
+    assert repl._slash_command("/thinking inline")
+    assert repl.thinking_display == "inline"
+    # Model level must be untouched by display words.
+    assert harness.config.thinking == "off"
+    assert repl._slash_command("/thinking minimized")
+    assert repl.thinking_display == "minimized"
+
+
+def test_thinking_level_args_still_set_level(tmp_path: Any, home: Any, capsys: Any) -> None:
+    """`/thinking medium` still sets the model's thinking level."""
+    repl, harness = _repl(tmp_path, home)
+    assert repl._slash_command("/thinking medium")
+    assert harness.config.thinking == "medium"
+
+
+def test_recovered_thinking_rendered_when_no_live_stream(
+    tmp_path: Any, home: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    """When the provider does not stream reasoning deltas but the completed
+    run recovered thinking, inline display renders it instead of showing
+    nothing."""
+    from om_harness.models.events import EventType, make_event
+
+    harness = Harness(repo_root=_repo(tmp_path), env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id)
+    assert repl.thinking_display == "inline"
+
+    async def turn_with_recovered_thinking(*args: Any, **kwargs: Any) -> str:
+        harness.bus.publish_sync(
+            make_event(
+                EventType.AGENT_COMPLETED,
+                session_id=repl.session_id,
+                agent="main",
+                thinking="I should consider the user's mood before answering.",
+            )
+        )
+        return "the reply"
+
+    monkeypatch.setattr(harness, "chat_turn", turn_with_recovered_thinking)
+    repl._pin_status_bar = False
+    repl.run_turn("hello")
+    out = capsys.readouterr().out
+    assert "consider the user" in out  # recovered thinking is visible
+
+
+def test_gauge_uses_context_tokens_over_aggregate(
+    tmp_path: Any, home: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    """The gauge must show the CURRENT context size (context_tokens), not the
+    run-aggregated input spend which exceeds the window (e.g. 3.9M/1.0M)."""
+    import asyncio
+
+    from om_harness.models.events import EventType, make_event
+
+    harness = Harness(repo_root=_repo(tmp_path), env={})
+    session = harness.sessions.create(repo_root=str(tmp_path))
+    repl = ChatRepl(harness, session_id=session.session_id)
+    repl._pin_status_bar = False
+
+    async def turn(*args: Any, **kwargs: Any) -> str:
+        harness.bus.publish_sync(
+            make_event(
+                EventType.MODEL_CALL_COMPLETED,
+                session_id=repl.session_id,
+                model="mock:echo",
+                input_tokens=3_900_000,  # aggregated spend across requests
+                context_tokens=900_000,  # actual current context size
+                output_tokens=1_000,
+            )
+        )
+        await asyncio.sleep(0.2)
+        return "reply"
+
+    monkeypatch.setattr(harness, "chat_turn", turn)
+    repl.run_turn("hello")
+    assert repl._context_used() == 900_000
+    # Spend accounting still uses the aggregate.
+    assert repl.total_usage.input_tokens == 3_900_000

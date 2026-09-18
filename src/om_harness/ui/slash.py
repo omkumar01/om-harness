@@ -24,7 +24,11 @@ class SlashCommand:
 
 COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("model", "Pick or set the active model", "[provider:model]"),
-    SlashCommand("thinking", "Show or set the thinking level", "[off|low|medium|high]"),
+    SlashCommand(
+        "thinking",
+        "Cycle thinking display or set model level",
+        "[inline|minimized|off|low|medium|high]",
+    ),
     SlashCommand("mode", "Cycle approval mode (ask / auto / deny)"),
     SlashCommand(
         "plan", "Toggle plan mode (read-only research, then approve to implement)", "[on|off]"
@@ -39,6 +43,7 @@ COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("skill", "Run a turn that follows a skill", "<name> [args]"),
     SlashCommand("plugins", "List installed plugins and their skills"),
     SlashCommand("status", "Session, checkpoint, and provider status"),
+    SlashCommand("resume", "Resume the latest session and continue"),
     SlashCommand("sessions", "List recent sessions"),
     SlashCommand("checkpoint", "Save a checkpoint now", "[label]"),
     SlashCommand(
@@ -173,7 +178,11 @@ class SlashCompleter(Completer):
         if command.name == "model":
             candidates = [(name, label) for name, label in self._model_options()]
         elif command.name == "thinking":
-            candidates = [(lv.value, lv.value) for lv in ThinkingLevel]
+            candidates = [
+                ("inline", "display: stream reasoning inline"),
+                ("minimized", "display: collapsed indicator"),
+                *[(lv.value, f"model level: {lv.value}") for lv in ThinkingLevel],
+            ]
         elif command.name == "timeout":
             candidates = [
                 ("agent", "whole-turn timeout"),

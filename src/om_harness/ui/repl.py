@@ -33,6 +33,7 @@ from om_harness.ui.components import (
     LineLevel,
     event_to_display,
     header_line,
+    resume_hint,
     status_bar,
     turn_activity,
     welcome_panel,
@@ -88,6 +89,7 @@ _COMMAND_HISTORY_MAX = 20  # commands kept for Alt+O / /output recall
 _COMMAND_PREVIEW_LINES = 3  # tail lines shown in the collapsed block
 _COMMAND_EXPAND_LINES = 300  # inline cap when Alt+O expands an output
 _OUTPUT_PAGE_LINES = 50  # /output pages instead of printing above this
+_RECOVERED_THINKING_MAX = 4_000  # cap for thinking recovered post-run
 
 # Keybinding table: action -> candidate key groups. The first group whose
 # key names are all valid for this platform wins. Note: Ctrl+M is physically
@@ -117,6 +119,9 @@ class _TurnStream:
     text: list[str] = field(default_factory=list)
     line_open: bool = False
     delta_count: int = 0
+    # Minimized-thinking state: deltas are counted, not printed inline.
+    thinking_chars: int = 0
+    thinking_started: bool = False
 
     def joined(self) -> str:
         return "".join(self.text)
@@ -194,11 +199,19 @@ class ChatRepl:
         self.harness = harness
         self.session_id = session_id
         self.verbosity = verbosity
-        self.show_thinking = True
+        # Thinking display mode: "inline" streams reasoning, "minimized"
+        # collapses it to a compact indicator, "off" hides it entirely.
+        # /thinking <level> (or Ctrl+T) still controls the model's thinking.
+        self.thinking_display = "inline"
         self.plan_mode = False
         self._saved_approval_policy: Any = None
+        self._thinking_active = False
         self.renderer = renderer or TerminalRenderer()
         self.total_usage = TokenUsage()
+        # Context size as last seen by the model (latest model call's input
+        # tokens). Deliberately NOT the cumulative session spend — that grows
+        # by a full window per request and would saturate the gauge.
+        self._last_context_tokens = 0
         self._last_ctrl_c = 0.0
         self._pending_paths: dict[str, str] = {}
         self._pending_commands: dict[str, str] = {}
@@ -239,9 +252,19 @@ class ChatRepl:
         return provider, model
 
     def _context_used(self) -> int:
-        return self.total_usage.input_tokens
+        return self._last_context_tokens
 
     def _context_max(self) -> int:
+        # The active model's context window is the gauge ceiling: it reflects
+        # what the model can actually hold (models.json contextWindow or the
+        # built-in lookup). Budget config is a separate runtime limit.
+        _, model = self._active()
+        try:
+            window = self.harness.provider_registry.model_context_window(model)
+        except Exception:
+            window = None
+        if window:
+            return window
         configured = self.harness.config.budget.max_input_tokens
         return configured if configured else CONTEXT_BUDGET_TOKENS
 
@@ -257,6 +280,7 @@ class ChatRepl:
                 )
                 self.renderer.console.print("╰" + "─" * 6 + "╯")
             except EOFError:
+                self._session_exit_hint()
                 self.renderer.info("bye")
                 return
             except _ModelSelectorRequested:
@@ -265,6 +289,7 @@ class ChatRepl:
             except KeyboardInterrupt:
                 now = time.monotonic()
                 if now - self._last_ctrl_c < 2.0:
+                    self._session_exit_hint()
                     self.renderer.info("bye")
                     return
                 self._last_ctrl_c = now
@@ -275,6 +300,7 @@ class ChatRepl:
             if not text.strip():
                 continue
             if text.strip().lower() in EXIT_COMMANDS:
+                self._session_exit_hint()
                 self.renderer.info("bye")
                 return
             if self.plan_mode and _PLAN_APPROVAL_RE.match(text.strip().lower()):
@@ -446,6 +472,7 @@ class ChatRepl:
                 self._context_used(),
                 self._context_max(),
                 hint=hint,
+                thinking_active=self._thinking_active and self.thinking_display == "minimized",
             )
         except Exception:
             return "om-harness"
@@ -483,6 +510,7 @@ class ChatRepl:
         rendered: set[str] = set()
         stream = _TurnStream()
         self._output_cursor = len(self._command_outputs)
+        self._thinking_active = False
 
         async def _turn() -> str:
             pump = asyncio.create_task(self._pump(cursor_holder, rendered, stream))
@@ -548,10 +576,37 @@ class ChatRepl:
                 )
             )
 
+        # Thinking summary for minimized mode: one compact line instead of
+        # the full inline stream (expand later via /thinking inline).
+        if self._thinking_active and self.thinking_display == "minimized":
+            tok = stream.thinking_chars // 4  # ~4 chars per token
+            label = f"{tok / 1000:.0f}k" if tok >= 1000 else str(tok)
+            self.renderer.line(
+                DisplayLine(level=LineLevel.dim, icon="◐", text=f"thinking ({label} tok)")
+            )
+        self._thinking_active = False
+
+        # Activity summary covers the WHOLE turn segment; token accounting
+        # only catches up on events the pump missed (it already counted the
+        # rest incrementally for the live status gauge).
         segment = self.harness.bus.since(cursor)
         activity = turn_activity(segment)
+        missed_tokens = turn_activity(self.harness.bus.since(cursor_holder[0]))
+        # Authoritative gauge refresh: the LAST model call in the turn is what
+        # the model saw most recently (covers events the pump missed). Prefer
+        # context_tokens (actual final-request size) over the run-aggregated
+        # input spend, which can exceed the window on tool-heavy turns.
+        for event in reversed(segment):
+            if event.type == EventType.MODEL_CALL_COMPLETED:
+                self._last_context_tokens = int(
+                    event.data.get("context_tokens") or event.data.get("input_tokens") or 0
+                )
+                break
         self.total_usage = self.total_usage.add(
-            TokenUsage(input_tokens=activity.input_tokens, output_tokens=activity.output_tokens)
+            TokenUsage(
+                input_tokens=missed_tokens.input_tokens,
+                output_tokens=missed_tokens.output_tokens,
+            )
         )
         line = activity.summary_line()
         if line != "no tool activity":
@@ -614,6 +669,21 @@ class ChatRepl:
                     rendered.add(event.id)
                     try:
                         self._render_event(event, stream)
+                        # Track usage incrementally so the live status gauge
+                        # reflects tokens as the model spends them (the
+                        # end-of-turn catch-up only adds what the pump missed).
+                        if event.type == EventType.MODEL_CALL_COMPLETED:
+                            self.total_usage = self.total_usage.add(
+                                TokenUsage(
+                                    input_tokens=int(event.data.get("input_tokens") or 0),
+                                    output_tokens=int(event.data.get("output_tokens") or 0),
+                                )
+                            )
+                            self._last_context_tokens = int(
+                                event.data.get("context_tokens")
+                                or event.data.get("input_tokens")
+                                or 0
+                            )
                     except Exception as exc:
                         # One bad event must never kill the live stream.
                         self._stream_warning(exc)
@@ -730,6 +800,14 @@ class ChatRepl:
                 self._pending_paths[tool] = arguments["path"]
             if tool in _COMMAND_TOOLS and isinstance(arguments.get("command"), str):
                 self._pending_commands[tool] = arguments["command"]
+            # Tools without dedicated live rendering (file diffs, command
+            # blocks) still get a visible call line in every verbosity mode —
+            # otherwise read/fetch/skill calls are invisible in compact mode.
+            if tool and tool not in _CHANGE_TOOLS and tool not in _COMMAND_TOOLS:
+                self._close_stream_line(stream)
+                rendered_args = ", ".join(f"{k}={v!r}" for k, v in arguments.items())[:120]
+                text = f"tool {tool}({rendered_args})"
+                self.renderer.line(DisplayLine(level=LineLevel.tool, icon="⚙", text=text))
         elif event.type in (EventType.TOOL_CALL_COMPLETED, EventType.TOOL_CALL_FAILED):
             tool = event.data.get("tool") or ""
             if (
@@ -756,19 +834,54 @@ class ChatRepl:
                     stream.text.append(delta)
                     stream.line_open = True
                     stream.delta_count += 1
-            elif self.show_thinking and kind == "thinking" and delta:
-                self.renderer.console.print(f"[dim italic]{escape(delta)}[/]", end="")
-                self._flush_console()
-                if stream is not None:
-                    stream.line_open = True
-                    stream.delta_count += 1
+            elif kind == "thinking" and delta:
+                if self.thinking_display == "inline":
+                    self.renderer.console.print(f"[dim italic]{escape(delta)}[/]", end="")
+                    self._flush_console()
+                    if stream is not None:
+                        stream.line_open = True
+                        stream.delta_count += 1
+                        stream.thinking_chars += len(delta)
+                elif self.thinking_display == "minimized":
+                    # Collapse the stream to one compact indicator line; the
+                    # per-turn summary at turn end reports the volume.
+                    if stream is not None:
+                        stream.thinking_chars += len(delta)
+                        stream.delta_count += 1
+                        if not stream.thinking_started:
+                            stream.thinking_started = True
+                            self._close_stream_line(stream)
+                            self._thinking_active = True
+                            self.renderer.line(
+                                DisplayLine(level=LineLevel.dim, icon="◐", text="thinking…")
+                            )
+                # "off": deltas are counted nowhere — nothing displayed.
             return
+        if event.type == EventType.AGENT_COMPLETED:
+            # Providers that never stream reasoning still report it here
+            # (recovered from the completed run) — show it instead of nothing.
+            self._show_recovered_thinking(event, stream)
         display = event_to_display(event, self.verbosity)
         if display is not None:
             self._close_stream_line(stream)
             self.renderer.line(display)
 
     # -- real-time file-change rendering --------------------------------------
+
+    def _show_recovered_thinking(self, event: Event, stream: _TurnStream | None) -> None:
+        """Render thinking recovered from a completed run when the provider
+        did not stream any reasoning deltas (inline display only)."""
+        if self.thinking_display != "inline" or stream is None or stream.thinking_chars:
+            return
+        thinking = event.data.get("thinking")
+        if not isinstance(thinking, str) or not thinking.strip():
+            return
+        self._close_stream_line(stream)
+        text = thinking.strip()
+        if len(text) > _RECOVERED_THINKING_MAX:
+            text = text[:_RECOVERED_THINKING_MAX] + " …"
+        self.renderer.console.print(f"[dim italic]{escape(text)}[/]")
+        stream.delta_count += 1
 
     def _show_file_change(self, path: str | None) -> None:
         """Render a live diff/status for a file the agent just changed."""
@@ -1034,10 +1147,27 @@ class ChatRepl:
                 self._cmd_model_selector()
         elif command == "thinking":
             if args:
-                self._set_thinking(args[0])
+                arg = args[0].lower()
+                # Display words control HOW reasoning is shown; levels
+                # (off/low/medium/high) control HOW MUCH the model thinks.
+                if arg in ("inline", "minimized"):
+                    self.thinking_display = arg
+                    state = {
+                        "inline": "on — full reasoning stream",
+                        "minimized": "on — collapsed indicator (expand via /thinking inline)",
+                    }[arg]
+                    self.renderer.info(f"thinking display {state} (model level: {self.thinking})")
+                else:
+                    self._set_thinking(args[0])
             else:
-                self.show_thinking = not self.show_thinking
-                state = "on — reasoning streams live" if self.show_thinking else "off"
+                modes = ("inline", "minimized", "off")
+                idx = modes.index(self.thinking_display) if self.thinking_display in modes else 0
+                self.thinking_display = modes[(idx + 1) % len(modes)]
+                state = {
+                    "inline": "on — full reasoning stream",
+                    "minimized": "on — collapsed indicator (expand via /thinking inline)",
+                    "off": "off",
+                }[self.thinking_display]
                 self.renderer.info(
                     f"thinking display {state} (model level: {self.thinking}; "
                     "/thinking <level> or Ctrl+T changes it)"
@@ -1078,6 +1208,8 @@ class ChatRepl:
             self._cmd_plugins()
         elif command == "status":
             self._cmd_status()
+        elif command == "resume":
+            self._cmd_resume()
         elif command == "output":
             self._cmd_output(args)
         else:
@@ -1105,6 +1237,7 @@ class ChatRepl:
                     "status",
                     "sessions",
                     "checkpoint",
+                    "resume",
                     "memory",
                     "setup",
                     "verbose",
@@ -1299,6 +1432,39 @@ class ChatRepl:
     def _cmd_status(self) -> None:
         for key, value in self.harness.status().items():
             self.renderer.console.print(f"[dim]{key}: {value}[/]")
+        checkpoints = self.harness.store.list_checkpoints(self.session_id)
+        self.renderer.console.print(f"[dim]checkpoints (this session): {len(checkpoints)}[/]")
+        self.renderer.line(
+            DisplayLine(level=LineLevel.dim, icon="·", text=resume_hint(self.session_id))
+        )
+
+    def _cmd_resume(self) -> None:
+        """Show the current session, its checkpoints, and how to resume it."""
+        session = self.harness.sessions.load(self.session_id)
+        checkpoints = self.harness.store.list_checkpoints(self.session_id)
+        self.renderer.info(
+            f"session {self.session_id} ({session.status.value}) · "
+            f"{len(session.messages)} messages · {len(session.runs)} run(s)"
+        )
+        for cp in checkpoints[-3:]:
+            label = cp.label or cp.checkpoint_id
+            summary = (cp.summary[:120] + "…") if len(cp.summary) > 120 else cp.summary
+            self.renderer.line(
+                DisplayLine(level=LineLevel.dim, icon="⌘", text=f"{label}: {summary or '(empty)'}")
+            )
+        self.renderer.info(f"to resume: {resume_hint(self.session_id)}")
+
+    def _session_exit_hint(self) -> None:
+        """Print the resume command before the REPL exits, so interrupted or
+        finished work can always be continued."""
+        with contextlib.suppress(Exception):
+            self.renderer.line(
+                DisplayLine(
+                    level=LineLevel.dim,
+                    icon="·",
+                    text=f"resume later with: {resume_hint(self.session_id)}",
+                )
+            )
 
     def _cmd_sessions(self) -> None:
         for session in self.harness.sessions.list_sessions()[:10]:
