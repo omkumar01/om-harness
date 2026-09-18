@@ -92,7 +92,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   command.
 
 
-## [1.2.0] - 2026-09-06
+## [1.2.0] - 2026-09-16
 
 ### Added
 
