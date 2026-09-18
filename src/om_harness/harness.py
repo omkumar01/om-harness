@@ -23,6 +23,8 @@ from om_harness.config.paths import user_cache_dir, user_skills_dir
 from om_harness.config.secrets import SecretRedactor
 from om_harness.context.assembler import ContextAssembler
 from om_harness.context.repo_index import RepoIndex
+from om_harness.memory.index import MemoryIndex
+from om_harness.memory.store import MemoryStore
 from om_harness.models.events import EventType, make_event
 from om_harness.models.session import Checkpoint
 from om_harness.models.task import (
@@ -48,6 +50,7 @@ from om_harness.skills import Skill, discover_skills
 from om_harness.tools import build_default_registry
 from om_harness.tools.approval import ApprovalEngine
 from om_harness.tools.base import ToolContext
+from om_harness.tools.memory import MemoryRecallTool, MemoryRememberTool
 from om_harness.tools.parallel import DispatchParallelTool
 from om_harness.tools.registry import GuardedToolExecutor
 from om_harness.tools.skill import SkillTool
@@ -139,7 +142,23 @@ class Harness:
             cache_ttl_hours=self.config.context.index_cache_ttl_hours,
         )
         self.skills = self._resolve_skills()
-        self.assembler = ContextAssembler(self.config, self.repo_index, skills=self.skills)
+
+        # Project-level memory: persists facts across sessions within this repo.
+        # Stored under <repo>/.om-harness/memory/ alongside other state.
+        self.memory_store: MemoryStore | None = None
+        self.memory_index: MemoryIndex | None = None
+        self._remember_tool: MemoryRememberTool | None = None
+        if self.config.memory.enabled:
+            self.memory_store = MemoryStore(self.repo_root / STATE_DIR_NAME / "memory")
+            self.memory_index = MemoryIndex(self.memory_store)
+            self.memory_index.build()
+
+        self.assembler = ContextAssembler(
+            self.config,
+            self.repo_index,
+            skills=self.skills,
+            memory_index=self.memory_index,
+        )
 
         # Shared live reference: /config set tool_timeout mutates this in
         # place so already-built tools see the new timeout immediately.
@@ -152,6 +171,16 @@ class Harness:
         self.registry = build_default_registry(self.tool_ctx)
         if self.skills:
             self.registry.register(SkillTool(self.tool_ctx, skills=self.skills))
+        # Register memory tools (only when memory is enabled)
+        if self.memory_store is not None and self.memory_index is not None:
+            self._remember_tool = MemoryRememberTool(
+                self.tool_ctx,
+                store=self.memory_store,
+                source_session="",
+                index=self.memory_index,
+            )
+            self.registry.register(self._remember_tool)
+            self.registry.register(MemoryRecallTool(self.tool_ctx, index=self.memory_index))
         self.approval = ApprovalEngine(
             self.config.approval, interactive=interactive, confirmer=confirmer
         )
@@ -239,6 +268,10 @@ class Harness:
         self.coordinator.run_id = run.run_id
         self.executor.session_id = session.session_id
         self.executor.run_id = run.run_id
+        # Propagate session_id to the remember tool so stored facts are
+        # attributed to the current session.
+        if self._remember_tool is not None:
+            self._remember_tool.source_session = session.session_id
 
         plan = self.planner.build_plan(goal, strategy=strategy, tasks=tasks)
         self.bus.publish_sync(
@@ -305,6 +338,10 @@ class Harness:
         for event in self.bus.since(event_cursor):
             if event.session_id == session.session_id:
                 self.store.append_event(event)
+
+        # Persist any in-memory memory changes (access counts, new entries)
+        if self.memory_index is not None:
+            self.memory_index.persist()
 
         return RunOutcome(
             session_id=session.session_id,

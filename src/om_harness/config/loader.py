@@ -74,6 +74,18 @@ class ThinkingLevel(StrEnum):
     high = "high"
 
 
+class CompressionStrategy(StrEnum):
+    """Context compression approach.
+
+    mechanical — keyword/entity-based extraction (no model calls; default)
+    llm        — model-driven summarization (requires a provider; falls back
+                 to mechanical when no model is available)
+    """
+
+    mechanical = "mechanical"
+    llm = "llm"
+
+
 class ApprovalConfig(BaseModel):
     policy: ApprovalPolicy = ApprovalPolicy.ask
     allowlist: set[str] = Field(default_factory=set)
@@ -105,6 +117,36 @@ class ContextConfig(BaseModel):
     max_repo_index_files: int = 500  # files in the index snippet sent for scoping
     index_cache_ttl_hours: float = 24.0  # persisted repo-index freshness window
     max_file_read_chars: int = 40_000  # per-read cap before truncation
+    max_context_tokens: int | None = None  # auto-compress when context exceeds this (estimated)
+
+
+class MemoryConfig(BaseModel):
+    """Project-level memory: persists facts across sessions within a repository."""
+
+    enabled: bool = True
+    max_entries: int = 1000  # compact the memory store when it exceeds this
+    max_fact_chars: int = 500  # per-fact content truncation
+    auto_extract: bool = True  # extract facts during context compression
+    compression_strategy: CompressionStrategy = CompressionStrategy.mechanical
+    retrieval_limit: int = 10  # default max facts to recall per call
+    fact_ttl_days: int | None = 7  # auto-extracted facts expire after N days (None = never)
+
+    @field_validator("max_entries", "max_fact_chars", "retrieval_limit", mode="before")
+    @classmethod
+    def _positive_int(cls, v: Any) -> int:
+        n = int(v)
+        if n < 1:
+            raise ValueError("must be >= 1")
+        return n
+
+    @field_validator("fact_ttl_days", mode="before")
+    @classmethod
+    def _ttl_days(cls, v: Any) -> int | None:
+        """0 or negative means no TTL (facts never expire)."""
+        if v is None or (isinstance(v, str) and v.strip().lower() in ("none", "null", "disabled")):
+            return None
+        n = int(v)
+        return None if n <= 0 else n
 
 
 class SkillsConfig(BaseModel):
@@ -120,6 +162,7 @@ class HarnessConfig(BaseModel):
     approval: ApprovalConfig = Field(default_factory=ApprovalConfig)
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     max_concurrency: int = 4
     agent_timeout_seconds: float | None = 600.0

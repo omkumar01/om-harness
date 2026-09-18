@@ -1059,6 +1059,8 @@ class ChatRepl:
             self._cmd_providers()
         elif command == "checkpoint":
             self._cmd_checkpoint(args[0] if args else "")
+        elif command == "memory":
+            self._cmd_memory(args)
         elif command == "sessions":
             self._cmd_sessions()
         elif command == "setup":
@@ -1103,6 +1105,7 @@ class ChatRepl:
                     "status",
                     "sessions",
                     "checkpoint",
+                    "memory",
                     "setup",
                     "verbose",
                     "output",
@@ -1318,6 +1321,93 @@ class ChatRepl:
             summary=f"manual checkpoint after {len(session.messages)} messages",
         )
         self.renderer.info(f"checkpoint saved: {checkpoint.checkpoint_id}")
+
+    def _cmd_memory(self, args: list[str]) -> None:
+        """Handle /memory subcommands: list, recall, clear."""
+        if self.harness.memory_index is None:
+            self.renderer.error("memory is not enabled")
+            return
+
+        if not args:
+            self.renderer.info("usage: /memory list [tag] | recall <query> | clear")
+            return
+
+        subcommand = args[0].lower()
+
+        if subcommand == "list":
+            self._memory_list(args[1:] if len(args) > 1 else [])
+        elif subcommand == "recall":
+            self._memory_recall(args[1:] if len(args) > 1 else [])
+        elif subcommand == "clear":
+            self._memory_clear()
+        else:
+            self.renderer.error(
+                f"unknown memory subcommand: {subcommand} — try list, recall, or clear"
+            )
+
+    def _memory_list(self, tag_args: list[str]) -> None:
+        """List stored memory entries, optionally filtered by tag."""
+        assert self.harness.memory_store is not None  # guarded by _cmd_memory
+        entries = self.harness.memory_store.load_all()
+        if not entries:
+            self.renderer.info("memory is empty — no facts stored")
+            return
+
+        if tag_args:
+            tag = tag_args[0].lower()
+            entries = [e for e in entries if tag in [t.lower() for t in e.tags]]
+
+        if not entries:
+            self.renderer.info(f"no memory entries with tag {tag_args[0]!r}")
+            return
+
+        for entry in entries:
+            tag_str = f" [{', '.join(entry.tags)}]" if entry.tags else ""
+            conf_str = f" (conf: {entry.confidence})" if entry.confidence < 1.0 else ""
+            self.renderer.line(
+                DisplayLine(
+                    icon="•",
+                    text=f"{entry.content}{tag_str}{conf_str}",
+                    level=LineLevel.dim if entry.is_expired() else LineLevel.info,
+                )
+            )
+
+    def _memory_recall(self, query_args: list[str]) -> None:
+        """Recall memory entries matching a query."""
+        from om_harness.memory.models import MemoryQuery
+
+        assert self.harness.memory_index is not None  # guarded by _cmd_memory
+
+        if not query_args:
+            self.renderer.info("usage: /memory recall <search terms>")
+            return
+
+        query = " ".join(query_args)
+        results = self.harness.memory_index.retrieve(
+            MemoryQuery(query=query, limit=self.harness.config.memory.retrieval_limit)
+        )
+
+        if not results:
+            self.renderer.info(f"no memory entries found matching {query!r}")
+            return
+
+        for entry in results:
+            tag_str = f" [{', '.join(entry.tags)}]" if entry.tags else ""
+            self.renderer.line(
+                DisplayLine(icon="•", text=f"{entry.content}{tag_str}", level=LineLevel.info)
+            )
+
+    def _memory_clear(self) -> None:
+        """Clear all stored memory entries."""
+        assert self.harness.memory_store is not None  # guarded by _cmd_memory
+        assert self.harness.memory_index is not None  # guarded by _cmd_memory
+        count = self.harness.memory_store.count()
+        if count == 0:
+            self.renderer.info("memory is already empty")
+            return
+        self.harness.memory_store.clear()
+        self.harness.memory_index.clear()
+        self.renderer.info(f"cleared {count} memory entries")
 
     # -- /setup wizard -------------------------------------------------------
 

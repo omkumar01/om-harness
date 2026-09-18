@@ -168,7 +168,10 @@ class AgentRunner:
             return TaskResult(task_id=task.id, status=TaskStatus.failed, errors=[str(exc)])
 
         assembled: AssembledContext = self.assembler.assemble(
-            task.role, task.instruction, prior_results=prior_results
+            task.role,
+            task.instruction,
+            prior_results=prior_results,
+            session_id=self.session_id or "",
         )
         agent = self.factory.build(
             model=model,

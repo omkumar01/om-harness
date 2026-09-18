@@ -41,6 +41,11 @@ COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("status", "Session, checkpoint, and provider status"),
     SlashCommand("sessions", "List recent sessions"),
     SlashCommand("checkpoint", "Save a checkpoint now", "[label]"),
+    SlashCommand(
+        "memory",
+        "Manage project memory (list/recall/clear)",
+        "[list [tag] | recall <query> | clear]",
+    ),
     SlashCommand("setup", "Interactive setup wizard (providers, model, modes)"),
     SlashCommand("verbose", "Cycle verbosity (compact / verbose / debug)"),
     SlashCommand("help", "Show commands and keybindings"),
