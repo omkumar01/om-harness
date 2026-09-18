@@ -21,6 +21,7 @@ from om_harness.providers.registry import ProviderRegistry
 from om_harness.providers.router import ModelRouter
 from om_harness.runtime.agent import (
     AgentFactory,
+    estimate_context_tokens,
     extract_thinking,
     make_stream_handler,
     supports_streaming,
@@ -241,6 +242,9 @@ class AgentRunner:
             model=model_str,
             input_tokens=token_usage.input_tokens,
             output_tokens=token_usage.output_tokens,
+            # Current context size (final request's history) — the gauge
+            # metric. input_tokens is the run-aggregated spend.
+            context_tokens=estimate_context_tokens(response.all_messages()),
         )
         self._emit(
             EventType.AGENT_COMPLETED,

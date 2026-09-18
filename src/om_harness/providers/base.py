@@ -77,3 +77,32 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
 MOCK_PREFIX = "mock:"
 
 BY_NAME = {spec.name: spec for spec in PROVIDERS}
+
+# Known context windows (in tokens) for built-in provider models.
+# Used by the REPL status bar gauge so it reflects the actual model capacity
+# rather than a static 200k default. Unknown models fall back to the default.
+CONTEXT_WINDOWS: dict[str, int] = {
+    # OpenAI
+    "gpt-4o-mini": 200_000,
+    "gpt-4o": 200_000,
+    "gpt-4-turbo": 128_000,
+    "gpt-4": 8_192,
+    "gpt-3.5-turbo": 16_385,
+    "o1": 200_000,
+    "o1-mini": 128_000,
+    "o3-mini": 200_000,
+    "o3": 200_000,
+    # Anthropic
+    "claude-3-5-sonnet-latest": 200_000,
+    "claude-3-5-haiku-latest": 200_000,
+    "claude-sonnet-4-5": 200_000,
+    "claude-3-7-sonnet-latest": 200_000,
+    "claude-3-5-sonnet-20241022": 200_000,
+    "claude-3-7-sonnet-20250219": 200_000,
+    # Google
+    "gemini-2.0-flash": 1_000_000,
+    "gemini-2.5-pro": 1_000_000,
+    "gemini-2.5-flash": 1_000_000,
+    "gemini-1.5-flash": 1_000_000,
+    "gemini-1.5-pro": 1_000_000,
+}

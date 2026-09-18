@@ -341,3 +341,19 @@ async def test_tool_max_retries_none_uses_default(tmp_repo: Any) -> None:
     assert isinstance(read_tool, Tool)
     # When None is passed, PydanticAI should use its default behavior
     assert read_tool.max_retries is None
+
+
+async def test_run_task_reports_context_tokens(tmp_repo: Any) -> None:
+    """MODEL_CALL_COMPLETED carries the estimated current context size (the
+    final request's history), separate from the run-aggregated input spend."""
+
+    async def respond(messages, agent_info) -> ModelResponse:  # type: ignore[no-untyped-def]
+        return ModelResponse(parts=[TextPart(content="done")])
+
+    bus = EventBus()
+    runner = _runner(tmp_repo, FunctionModel(respond), bus)
+    task = Task(id="t1", title="x", instruction="do x")
+    await runner.run_task(task)
+    completed = [e for e in bus.history if e.type == EventType.MODEL_CALL_COMPLETED]
+    assert completed, "expected a MODEL_CALL_COMPLETED event"
+    assert int(completed[-1].data.get("context_tokens") or 0) > 0

@@ -164,6 +164,32 @@ class ProviderRegistry:
             + (", or a provider from models.json" if self._custom is not None else "")
         )
 
+    def model_context_window(self, model_str: str) -> int | None:
+        """Return the context window (in tokens) for a model string, or None.
+
+        Checks models.json (custom providers) first, then the built-in
+        CONTEXT_WINDOWS lookup table. Returns None when the model's context
+        window is not known, so callers can fall back to a default.
+        """
+        from om_harness.providers.base import CONTEXT_WINDOWS
+
+        try:
+            parsed = self.resolve_model(model_str)
+        except ProviderError:
+            return None
+
+        # Custom providers: read contextWindow from models.json.
+        if self._custom is not None and parsed.provider in self._custom.providers:
+            try:
+                model = self._custom.get_model(parsed.provider, parsed.model_name)
+                if model.context_window is not None:
+                    return model.context_window
+            except Exception:
+                pass
+
+        # Built-in providers: look up known context windows.
+        return CONTEXT_WINDOWS.get(parsed.model_name)
+
     def default_model(self) -> str:
         provider = self.first_available()
         if provider is None:

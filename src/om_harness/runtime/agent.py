@@ -92,6 +92,31 @@ def extract_thinking(all_messages: list[Any]) -> str:
     return "\n".join(parts)
 
 
+def estimate_context_tokens(all_messages: list[Any]) -> int:
+    """Estimated token size of the context the model last saw (chars / 4).
+
+    ``all_messages()`` after a run holds the complete final-request history
+    (system prompt, conversation, tool returns, final response) — the honest
+    "current context size". Run-aggregated ``input_tokens`` instead sums
+    every internal request, which grows with tool-call count and can exceed
+    the model's window entirely.
+    """
+    from om_harness.context.budget import CHARS_PER_TOKEN
+
+    total_chars = 0
+    for message in all_messages:
+        for part in getattr(message, "parts", []):
+            content = getattr(part, "content", None)
+            if isinstance(content, str):
+                total_chars += len(content)
+            elif content is not None:
+                total_chars += len(str(content))
+            args = getattr(part, "args", None)
+            if isinstance(args, str):
+                total_chars += len(args)
+    return max(1, total_chars // CHARS_PER_TOKEN)
+
+
 def supports_streaming(model: Any) -> bool:
     """Whether the model can serve streamed requests.
 
