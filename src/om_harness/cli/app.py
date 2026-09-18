@@ -46,13 +46,16 @@ def main(
     version: bool = typer.Option(
         False, "--version", callback=_version_callback, is_eager=True, help="Show version and exit."
     ),
+    resume: bool = typer.Option(False, "--resume", help="Continue the latest session."),
+    session: str = typer.Option(None, "--session", help="Session id to continue."),
 ) -> None:
     """om-harness: orchestrate coding agents in your repository.
 
     Run without a subcommand to start an interactive chat session.
+    `om-harness --resume --session <id>` reopens a previous session.
     """
     if ctx.invoked_subcommand is None:
-        launch_interactive()
+        launch_interactive(session=session, resume=resume)
 
 
 def launch_interactive(
@@ -64,6 +67,7 @@ def launch_interactive(
 ) -> None:  # pragma: no cover - interactive entry point (tested via monkeypatch)
     """First-class default: `om-harness` drops you into a chat session."""
     from om_harness.config.paths import ensure_user_dirs, user_config_dir
+    from om_harness.runtime.store import StoreError
     from om_harness.ui.repl import ChatRepl
 
     first_run = ensure_user_dirs()
@@ -78,7 +82,13 @@ def launch_interactive(
             "ANTHROPIC_API_KEY, GOOGLE_API_KEY) or add providers to "
             "~/.om-harness/config/models.json. Type /help for commands.[/]"
         )
-    session_obj = harness._resolve_session(session_id=session, resume=resume)
+    try:
+        session_obj = harness._resolve_session(session_id=session, resume=resume)
+    except StoreError as exc:
+        # A stale/unknown session id is a user-input problem: one clean line,
+        # not a traceback.
+        renderer.error(str(exc))
+        raise typer.Exit(1) from exc
     repl = ChatRepl(harness, session_id=session_obj.session_id, verbosity=harness.config.verbosity)
     repl.run_forever()
 
@@ -182,7 +192,7 @@ def run(
     approval_policy: str = typer.Option(None, "--approval-policy"),
 ) -> None:
     """Run one coding-agent goal end-to-end."""
-    from om_harness.ui.components import outcome_to_summary
+    from om_harness.ui.components import DisplayLine, LineLevel, outcome_to_summary, resume_hint
 
     harness = _build_harness(repo, json_mode, verbose, debug, model, approval_policy)
     renderer = harness.renderer
@@ -210,6 +220,15 @@ def run(
     else:
         _print_events(harness, cursor, renderer, harness.config.verbosity)
         renderer.summary(outcome_to_summary(outcome))
+        # Always show how to continue this session — interrupted or finished
+        # work must never dead-end.
+        renderer.line(
+            DisplayLine(
+                level=LineLevel.dim,
+                icon="·",
+                text=f"resume later with: {resume_hint(outcome.session_id)}",
+            )
+        )
     if outcome.status.value != "completed":
         raise typer.Exit(1)
 
@@ -360,10 +379,15 @@ def resume(
 ) -> None:
     """Show the latest session/checkpoint and how to continue it."""
     from om_harness.harness import Harness
+    from om_harness.runtime.store import StoreError
 
     harness = Harness(repo_root=_repo_root(repo))
     if session:
-        target: Any = harness.sessions.load(session)
+        try:
+            target: Any = harness.sessions.load(session)
+        except StoreError as exc:
+            err_console.print(f"[red]✖[/] {exc}")
+            raise typer.Exit(1) from exc
     else:
         target = harness.sessions.latest(str(_repo_root(repo)))
     if target is None:
@@ -378,14 +402,15 @@ def resume(
         "messages": len(target.messages),
         "checkpoints": [cp.checkpoint_id for cp in checkpoints],
         "latest_checkpoint": latest_cp.model_dump(mode="json") if latest_cp else None,
-        "continue_with": f"om-harness run <goal> --session {target.session_id}",
+        "continue_with": f"om-harness --resume --session {target.session_id}",
     }
     if json_mode:
         typer.echo(_json_payload(payload))
         return
     console.print(f"session [bold]{target.session_id}[/] ({target.status.value})")
+    console.print(f"checkpoints: {len(checkpoints)}")
     if latest_cp:
-        console.print(f"checkpoint: {latest_cp.checkpoint_id}")
+        console.print(f"latest checkpoint: {latest_cp.checkpoint_id}")
         console.print(f"summary: {latest_cp.summary[:300] or '(empty)'}")
     console.print(payload["continue_with"])
 

@@ -239,3 +239,76 @@ def test_plugin_commands_json_output(tmp_path: Any, monkeypatch: pytest.MonkeyPa
 def test_uninstall_unknown_plugin_exits_nonzero(tmp_path: Any) -> None:
     result = runner.invoke(app, ["uninstall", "ghost"], catch_exceptions=False)
     assert result.exit_code != 0
+
+
+# -- resume hint at session end ----------------------------------------------
+
+
+def test_run_shows_resume_hint(repo: Any) -> None:
+    """After `om-harness run` completes, a resume command is printed."""
+    _invoke("init")
+    result = _invoke("run", "inspect the repository layout")
+    assert result.exit_code == 0, result.output
+    assert "resume" in result.output.lower()
+
+
+def test_resume_command_suggests_resume_flag(repo: Any) -> None:
+    """`om-harness resume` prints a hint using --resume."""
+    _invoke("init")
+    _invoke("run", "first goal", "--json")
+    result = _invoke("resume")
+    assert result.exit_code == 0
+    assert "--resume" in result.output
+
+
+def test_resume_command_shows_checkpoint_count(repo: Any) -> None:
+    """`om-harness resume` reports the checkpoint count."""
+    _invoke("init")
+    _invoke("run", "a goal", "--json")
+    result = _invoke("resume", "--json")
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert len(data.get("checkpoints", [])) >= 1
+
+
+def test_bare_command_accepts_resume_and_session(
+    repo: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`om-harness --resume --session <id>` must open the interactive shell
+    continuing that session (previously these options only existed on `chat`)."""
+    import om_harness.cli.app as app_module
+
+    calls: list[dict[str, Any]] = []
+
+    def fake_launch(**kwargs: Any) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr(app_module, "launch_interactive", fake_launch)
+    result = runner.invoke(app, ["--resume", "--session", "96fa4dab1f56"], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert calls and calls[0]["resume"] is True
+    assert calls[0]["session"] == "96fa4dab1f56"
+
+
+def test_bare_resume_missing_session_shows_clean_error(
+    repo: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`om-harness --session <bad-id>` must print a one-line error, not a
+    pretty-exception traceback with the whole call stack."""
+    import om_harness.ui.repl as repl_mod
+
+    monkeypatch.setattr(repl_mod.ChatRepl, "run_forever", lambda self: None)
+    result = runner.invoke(app, ["--resume", "--session", "nope12345"], catch_exceptions=False)
+    assert result.exit_code == 1
+    assert "not found" in result.output
+    # No rich traceback panel: the failure frame must not appear.
+    assert "_resolve_session" not in result.output
+
+
+def test_resume_missing_session_shows_clean_error(repo: Any) -> None:
+    """`om-harness resume --session <bad-id>` prints a one-line error."""
+    result = runner.invoke(app, ["resume", "--session", "nope12345"], catch_exceptions=False)
+    assert result.exit_code == 1
+    assert "not found" in result.output
+    assert "_resolve_session" not in result.output
+    assert "sessions.load" not in result.output
