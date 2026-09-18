@@ -15,6 +15,9 @@ from pydantic import BaseModel, Field
 from om_harness.config.loader import HarnessConfig
 from om_harness.context.budget import ContextLedger, ContextReport
 from om_harness.context.repo_index import RepoIndex
+from om_harness.memory.compressor import ContextCompressor
+from om_harness.memory.index import MemoryIndex
+from om_harness.memory.models import MemoryEntry, MemoryQuery
 from om_harness.models.session import Message, MessageRole
 from om_harness.models.task import TaskResult
 from om_harness.skills import Skill, render_skill_list
@@ -91,6 +94,17 @@ def render_task_results(results: list[TaskResult]) -> str:
     return "\n".join(lines)
 
 
+def render_memory_facts(facts: list[MemoryEntry]) -> str:
+    """Render recalled memory entries as a compact context section."""
+    if not facts:
+        return ""
+    lines = ["Prior project knowledge (from memory):"]
+    for entry in facts:
+        tag_str = f" [{', '.join(entry.tags)}]" if entry.tags else ""
+        lines.append(f"- {entry.content}{tag_str}")
+    return "\n".join(lines)
+
+
 def summarize_history(history: list[Message], keep_last: int) -> str:
     """Extractive, model-free summary of older conversation turns."""
     if not history:
@@ -119,12 +133,21 @@ class ContextAssembler:
         config: HarnessConfig,
         repo_index: RepoIndex | None = None,
         skills: dict[str, Skill] | None = None,
+        memory_index: MemoryIndex | None = None,
     ) -> None:
         self.config = config
         self.repo_index = repo_index
         self.skills: dict[str, Skill] = dict(skills or {})
+        self.memory_index = memory_index
         self.plan_mode: bool = False
         self._repo_context_cache: str | None = None
+        # Create a compressor tied to the memory store when memory is enabled.
+        self.compressor: ContextCompressor | None = None
+        if memory_index is not None and config.memory.enabled and config.memory.auto_extract:
+            self.compressor = ContextCompressor(
+                store=memory_index.store,
+                max_fact_chars=config.memory.max_fact_chars,
+            )
 
     def system_prompt(self, role: str) -> str:
         base = BASE_PROMPT
@@ -164,6 +187,8 @@ class ContextAssembler:
         history: list[Message] | None = None,
         prior_results: list[TaskResult] | None = None,
         include_repo: bool = True,
+        include_memory: bool = True,
+        session_id: str = "",
     ) -> AssembledContext:
         ctx_config = self.config.context
         ledger = ContextLedger()
@@ -176,15 +201,23 @@ class ContextAssembler:
             ledger.record("repo_context", repo_context)
 
         # History: trim to the configured window; summarize the dropped tail
-        # instead of resending it. The summary travels as the first history
-        # entry so downstream consumers see one coherent list.
+        # instead of resending it. When max_context_tokens is configured and
+        # the compressor is available, use enhanced compression that extracts
+        # structured facts to memory before summarizing — so nothing important
+        # is lost. The summary travels as the first history entry so downstream
+        # consumers see one coherent list.
         trimmed: list[Message] = []
         history_note = ""
         if history:
             keep = ctx_config.max_history_messages
             if len(history) > keep:
                 dropped = history[:-keep]
-                history_note = summarize_history(dropped, keep_last=keep)
+                if self.compressor is not None and ctx_config.max_context_tokens is not None:
+                    history_note = self.compressor.compress_history(
+                        dropped, session_id=session_id, extra_tags=["compressed"]
+                    )
+                else:
+                    history_note = summarize_history(dropped, keep_last=keep)
                 # The summary counts toward the window: keep one fewer raw
                 # message so the total stays within max_history_messages.
                 trimmed = [Message(role=MessageRole.system, content=history_note)]
@@ -205,6 +238,21 @@ class ContextAssembler:
         if results_text:
             parts.append(results_text)
             ledger.record("prior_results", results_text)
+
+        # Memory: retrieve and inject relevant facts from persistent memory.
+        # Skip when memory is explicitly disabled in config, even if an index
+        # was provided (e.g. for testing or gradual rollout).
+        if include_memory and self.memory_index is not None and self.config.memory.enabled:
+            query = MemoryQuery(
+                query=instruction,
+                limit=self.config.memory.retrieval_limit,
+            )
+            facts = self.memory_index.retrieve(query)
+            memory_text = render_memory_facts(facts)
+            if memory_text:
+                parts.append(memory_text)
+                ledger.record("memory", memory_text)
+
         parts.append(f"Task: {instruction}")
         user_prompt = "\n\n".join(parts)
         ledger.record("user_prompt", user_prompt)
@@ -223,6 +271,7 @@ __all__ = [
     "ROLE_PROMPTS",
     "AssembledContext",
     "ContextAssembler",
+    "render_memory_facts",
     "render_task_results",
     "summarize_history",
 ]

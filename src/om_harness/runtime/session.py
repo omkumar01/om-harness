@@ -139,6 +139,7 @@ class SessionManager:
         plan: Plan | None = None,
         task_results: list[TaskResult] | None = None,
         completed_task_ids: list[str] | None = None,
+        memory_entry_ids: list[str] | None = None,
     ) -> Checkpoint:
         checkpoint = Checkpoint(
             checkpoint_id=f"cp-{uuid.uuid4().hex[:8]}",
@@ -150,6 +151,7 @@ class SessionManager:
             plan=plan,
             task_results=task_results or [],
             completed_task_ids=completed_task_ids or [],
+            memory_entry_ids=memory_entry_ids or [],
         )
         self.store.save_checkpoint(checkpoint)
         self.bus.publish_sync(

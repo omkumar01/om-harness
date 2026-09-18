@@ -8,6 +8,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- Add new entries here, above the latest release. -->
 
 
+## [Unreleased]
+
+### Added
+
+- **New module**: `memory/` — project-level memory system that persists facts
+  across sessions within a repository. Facts are stored as structured entries
+  with tags, confidence scores, and TTL-based expiry. Uses a keyword-based
+  inverted index (no vector DB) for fast, deterministic, zero-cost retrieval.
+  - **New tools**: `remember` (store a fact with tags and confidence) and
+    `recall` (search stored facts by keyword + tag filters). Both are gated
+    by the existing approval system (`remember` is mutating, `recall` is
+    read-only).
+  - **Enhanced context compression**: when context exceeds a configurable
+    threshold (`context.max_context_tokens`), the assembler uses the new
+    `ContextCompressor` to mechanically extract structured facts (file paths,
+    errors, decisions, config values) from conversation history and persist
+    them to memory *before* summarizing — so major facts are never lost during
+    compression. Falls back to the existing extractive `summarize_history()`
+    when the threshold is not set or memory is disabled.
+  - **Compression strategy**: configurable via `memory.compression_strategy`
+    (`"mechanical"` default, or `"llm"` for future model-driven summarization).
+  - **REPL command**: `/memory list [tag]`, `/memory recall <query>`, and
+    `/memory clear` for interactive memory management.
+  - **Checkpoint enhancement**: `Checkpoint` now includes `memory_entry_ids`
+    to track which facts were relevant to a given checkpoint.
+- **Config**: new `memory` section in `HarnessConfig` (`enabled`, `max_entries`,
+  `max_fact_chars`, `auto_extract`, `compression_strategy`, `retrieval_limit`,
+  `fact_ttl_days`) and `context.max_context_tokens` for compression threshold.
+  Configurable via `om-harness.toml` or `[tool.om-harness.memory]` in
+  `pyproject.toml` (note: memory settings are not yet wired to `OM_HARNESS_*`
+  env vars — set them in your TOML config instead).
+
+
 ## [1.2.0] - 2026-09-06
 
 ### Added

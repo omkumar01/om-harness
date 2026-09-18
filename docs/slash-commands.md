@@ -26,6 +26,7 @@ Slash commands are typed directly into the REPL prompt (prefixed with `/`) and p
 | `/status` | Session, checkpoint, and provider status | *(none)* | `/status` |
 | `/sessions` | List recent sessions | *(none)* | `/sessions` |
 | `/checkpoint` | Save a checkpoint now | `[label]` | `/checkpoint "before refactor"` |
+| `/memory` | Manage project memory (list/recall/clear) | `[list [tag] \| recall <query> \| clear]` | `/memory list` |
 | `/setup` | Interactive setup wizard (providers, model, modes) | *(none)* | `/setup` |
 | `/verbose` | Cycle verbosity (compact / verbose / debug) | *(none)* | `/verbose` |
 | `/help` | Show commands and keybindings | *(none)* | `/help` |
@@ -224,6 +225,40 @@ Creates a named checkpoint of the current session state. Without arguments, uses
   ```
   /checkpoint "before major refactor"
   ```
+
+---
+
+### `/memory` — Project Memory Management
+
+**Usage:** `/memory list [tag]` | `/memory recall <query>` | `/memory clear`
+
+Manages the project-level memory system — a persistent fact store that
+survives across sessions within the same repository. Facts are stored as
+structured entries (content + tags + confidence + TTL) in
+`<repo>/.om-harness/memory/memory.jsonl` and retrieved via a keyword inverted
+index (no vector DB, no model calls).
+
+- **`list [tag]`** — List all stored memory entries. Optionally filter to
+  entries tagged with the given tag. Expired entries (past `fact_ttl_days`)
+  are shown dimmed.
+- **`recall <query>`** — Search stored facts by keyword, ranked by
+  relevance (TF-IDF + recency + access-frequency + confidence). Results are
+  also injected into the model's context automatically during runs when the
+  instruction matches stored facts.
+- **`clear`** — Remove all stored memory entries.
+
+**Examples:**
+```
+/memory list                # show all facts
+/memory list bug            # show only facts tagged "bug"
+/memory recall parser       # search for facts mentioning "parser"
+/memory clear               # wipe all stored facts
+```
+
+The agent can also interact with memory during a run via the `remember` tool
+(store a fact, mutating — requires approval) and the `recall` tool
+(search stored facts, read-only). Memory is enabled by default; disable it
+with `memory.enabled = false` in `om-harness.toml`.
 
 ---
 

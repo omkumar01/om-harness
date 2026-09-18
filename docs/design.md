@@ -46,6 +46,17 @@ listings and transcripts — those do not require an LLM summarizer.
 extractive one. The assembler is the single place to add them later; the
 `ContextLedger` already reports what was sent.
 
+**Evolution.** The `memory/` module extends this tradeoff with *mechanical
+fact extraction*: before the dropped history tail is summarized, the
+`ContextCompressor` scans it for file paths, errors, decisions, and config
+values and persists them as structured entries in project memory. This is
+zero-LLM-cost and deterministic (same regex-based approach), and it only
+activates when `context.max_context_tokens` is set. The `summarize_history`
+fallback remains the default when that threshold is unset. The
+`CompressionStrategy.llm` option is a placeholder for a future
+model-driven path that would replace the mechanical extractor — see
+Tradeoff 14.
+
 **Non-goals.** Vector embeddings, semantic retrieval, RAG. For repos that
 fit an index summary plus targeted `read_file` calls, they add moving parts
 without changing what the model sees.
@@ -238,6 +249,42 @@ must tolerate `None` — asyncio does natively, and tests cover the
 round-trip. Long agent turns without a timeout can hang until the user
 interrupts; that is exactly what `off` asks for.
 
+## Tradeoff 14: Project-level memory vs. simplicity
+
+**Decision.** A per-repository keyword-indexed fact store (JSONL + in-memory
+inverted index) with mechanical (regex-based) fact extraction during context
+compression. No vector embeddings, no external database, no model calls for
+retrieval or compression by default.
+
+**Why.** The same reasons as Tradeoff 2: mechanical is deterministic,
+testable, free, and fast. Most agent-discovered knowledge ("the bug is in
+`src/parser.py:42`", "use `gemini-2.0-flash` for review", "the API key is in
+`.env.local`") is retrievable by keyword. A JSONL file is human-inspectable
+and diffable, matching the project's file-based durability philosophy
+(Tradeoff 5). Fact extraction during compression preserves the *structured
+essence* (file references, errors, decisions) while the raw transcript is
+summarized — nothing important is lost.
+
+**Cost.**
+- Keyword retrieval can't handle semantic similarity (e.g. "the login bug"
+  won't match "authentication issue") — acceptable for a coding agent anchored
+  to file paths and code symbols.
+- `max_entries` and `fact_ttl_days` are declared in config but not yet fully
+  enforced: no automatic compaction runs, and expired facts are shown dimmed
+  in `/memory list` but are not purged or blocked from retrieval. These are
+  straightforward follow-ups.
+- `CompressionStrategy.llm` is stubbed (`NotImplementedError`); the only wired
+  path is `mechanical`. When a provider is available, an LLM summarizer
+  would likely produce tighter compression — but it would also cost tokens and
+  add nondeterminism, so it remains opt-in and unimplemented.
+- Memory config is TOML-only (not wired to `OM_HARNESS_*` env vars), unlike
+  routing and approval settings. A one-line addition to `_apply_env` would
+  fix this if needed.
+
+**Non-goals.** Vector embeddings, cross-repository memory, real-time
+collaboration, structured fact updates (upsert-by-ID is supported but the
+agent-facing `remember` tool creates new IDs per call).
+
 ## Compatibility notes
 
 - Python ≥ 3.11 (StrEnum, asyncio.timeout, tomllib).
@@ -252,11 +299,13 @@ interrupts; that is exactly what `off` asks for.
 
 Remote execution (networked `LocalStore`/`EventBus`), shared agent pools,
 hosted web app (same facade), more providers, MCP toolsets (PydanticAI
-capability), richer memory (checkpoint side-channels), evaluation harness
-(run the same scripted models against suites), team governance (approval
-policies are already a policy object), plugin capabilities beyond skills
-(slash commands, tools, Python entry points — `plugins/` already owns the
-install/discovery lifecycle and the manifest is the versioned seam). The
+capability), richer memory (cross-repository sharing, vector-backed semantic
+retrieval, TTL/compaction enforcement, `OM_HARNESS_*` env-var wiring for memory
+settings), evaluation harness (run the same scripted models against suites),
+team governance (approval policies are already a policy object), plugin
+capabilities beyond skills (slash commands, tools, Python entry points —
+`plugins/` already owns the install/discovery lifecycle and the manifest is
+the versioned seam). The
 REPL already supports a built-in set of slash commands (`/model`,
 `/thinking`, `/mode`, `/plan`, `/config`, `/timeout`, `/providers`, `/tools`,
 `/skills`, `/skill`, `/plugins`, `/status`, `/sessions`, `/checkpoint`,
