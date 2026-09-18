@@ -24,9 +24,10 @@ flowchart TD
     subgraph middle["Runtime services"]
         ORCH["orchestration/<br/>planner · coordinator"]
         RUN["runtime/<br/>runner · agent · session · store · bus"]
-        CTX["context/<br/>assembler · repo_index · budget"]
+        CTX["context/<br/>assembler · repo_index · budget · compressor"]
+        MEM["memory/<br/>store · index · compressor · models"]
         PROV["providers/<br/>registry · router · mock"]
-        TOOLS["tools/<br/>files · shell · git · testing · skill · approval"]
+        TOOLS["tools/<br/>files · shell · git · testing · skill · approval · memory"]
         SKP["skills/ + plugins/<br/>discovery · git install"]
     end
     subgraph core["Pure contracts"]
@@ -39,6 +40,8 @@ flowchart TD
     RUN --> TOOLS
     RUN --> PROV
     RUN --> CTX
+    CTX --> MEM
+    TOOLS --> MEM
     middle --> core
 ```
 
@@ -70,13 +73,18 @@ Dependency rules:
 | `providers/mock.py` | `FunctionModel`-based offline models (`mock:echo`, scripted) |
 | `context/repo_index.py` | Cached, bounded repo file map |
 | `context/budget.py` | Token estimation + per-component `ContextLedger` |
-| `context/assembler.py` | Role prompts, history trimming/summarization, `ContextReport` |
+| `context/assembler.py` | Role prompts, history trimming/summarization, memory fact injection, `ContextReport` |
 | `skills/` | `SKILL.md` discovery (frontmatter parsing) + on-demand body loading |
 | `plugins/` | Git-installable plugins: source parsing, clone/update/uninstall, provenance |
 | `tools/base.py` | `Permission`, `ToolResult`, `ToolContext`, path confinement |
 | `tools/approval.py` | `ApprovalEngine`: policy → decision, async confirmer |
 | `tools/registry.py` | `ToolRegistry` + `GuardedToolExecutor` (approval + events) |
 | `tools/skill.py` | `SkillTool`: loads a registered skill's full instructions on demand |
+| `tools/memory.py` | `MemoryRememberTool` (mutating) + `MemoryRecallTool` (read-only) |
+| `memory/models.py` | `MemoryEntry`, `MemoryQuery`, `MemorySummary` — structured fact contracts |
+| `memory/store.py` | `MemoryStore`: JSONL persistence with atomic writes, corrupt-line tolerance |
+| `memory/index.py` | `MemoryIndex`: keyword inverted index with TF-IDF + recency/access/confidence scoring |
+| `memory/compressor.py` | `ContextCompressor`: mechanical fact extraction (file paths, errors, decisions, config) + entity summaries |
 | `orchestration/planner.py` | Strategy choice + plan construction (smallest plans first) |
 | `orchestration/coordinator.py` | Topological waves, semaphore, retries, timeouts, skips |
 | `harness.py` | Composition root: `run`, `chat_turn`, `status`, `doctor`, `init_repo` |
@@ -174,15 +182,28 @@ Properties (all proven in `tests/unit/test_orchestration.py`):
    relative paths and sizes, capped by `context.max_repo_index_files`.
    Built once per session; `invalidate()` on demand.
 3. **History**: at most `context.max_history_messages` messages. When the
-   history is longer, the dropped tail is replaced by a one-line extractive
-   summary that counts toward the window. Old messages are never resent.
+   history is longer, the dropped tail is replaced by a summary. By default
+   this is a one-line extractive summary (`summarize_history`); when
+   `context.max_context_tokens` is set and memory is enabled, the enhanced
+   path uses `ContextCompressor.compress_history` instead, which
+   mechanically extracts structured facts (file paths, errors, decisions,
+   config values) into persistent memory *before* summarizing — so nothing
+   important is lost when the raw transcript is dropped. Old messages are
+   never resent.
 4. **Prior agent results**: rendered from `TaskResult` models only —
    summary, findings, files touched, errors. Sub-agent transcripts never
    cross agent boundaries.
-5. **Token ledger**: every component's estimated size (≈ chars/4) is
+5. **Prior project memory**: when memory is enabled, the assembler
+   retrieves facts relevant to the current instruction via the memory
+   keyword index and renders them under a "Prior project knowledge (from
+   memory)" section. Retrieval is skipped when memory is disabled. See
+   [docs/configuration.md#when-and-how-facts-are-stored](configuration.md#when-and-how-facts-are-stored)
+   for the two storage paths (agent-initiated `remember` tool vs. automatic
+   `ContextCompressor` extraction).
+6. **Token ledger**: every component's estimated size (≈ chars/4) is
    recorded; `ContextReport` itemizes it. This is the "why did a run use
    its context" answer.
-6. **Available skills**: when skills are discovered, the system prompt
+7. **Available skills**: when skills are discovered, the system prompt
    gains one section — a one-line `name: description` listing plus an
    instruction to load a matching skill through the `skill` tool. The full
    SKILL.md body is *not* sent up front (progressive disclosure, see
@@ -275,14 +296,22 @@ a path.
 .om-harness/
 ├── sessions/<session_id>.json         # Session: messages, runs, status
 ├── events/<session_id>.jsonl          # append-only typed event log
-└── checkpoints/<session_id>/<id>.json # compact resumable state
+├── checkpoints/<session_id>/<id>.json # compact resumable state
+└── memory/                            # (new) project-level memory
+    └── memory.jsonl                   # one MemoryEntry per line (JSONL)
 ```
 
 - **Atomicity**: writes go to a temp file + `os.replace`; a crash mid-write
   leaves the previous state intact (tested).
 - **Checkpoints** store compact state — plan, task results, completed ids,
-  summary, next hint — *not* transcripts. Resuming rebuilds scoped context
-  from the checkpoint plus a fresh repo index.
+  summary, next hint, and `memory_entry_ids` (which facts were relevant) — *not*
+  transcripts. Resuming rebuilds scoped context from the checkpoint plus a
+  fresh repo index.
+- **Memory** (`memory/`) persists project-level facts (structured entries with
+  tags, confidence, and TTL) as JSONL. The `MemoryIndex` loads them into an
+  in-memory keyword index on startup; access counts and metadata are flushed
+  back to disk after each run. Same atomic-write guarantees as the rest of the
+  state directory.
 - **Events** are appended from the bus after each run via a seq-cursor
   window (`bus.since(cursor)` — correct even when the bounded history has
   evicted entries; deterministic, no async race). A torn final line after a

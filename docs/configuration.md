@@ -82,6 +82,16 @@ max_history_messages = 40
 summarize_after = 24
 max_repo_index_files = 500
 max_file_read_chars = 40000
+max_context_tokens = 20000             # auto-compress history when context exceeds this (estimated); None disables
+
+[memory]
+enabled = true                          # master switch for the project-level memory system
+max_entries = 1000                      # target ceiling for store compaction
+max_fact_chars = 500                  # per-fact content truncation
+auto_extract = true                   # extract structured facts during context compression
+compression_strategy = "mechanical"   # "mechanical" | "llm" (llm requires a provider; falls back to mechanical)
+retrieval_limit = 10                  # max facts recalled per assemble() call
+fact_ttl_days = 7                     # auto-extracted facts expire after N days; 0/none disables expiry
 
 max_concurrency = 4                     # parallel agent tasks
 agent_timeout_seconds = 600.0           # whole-turn timeout; "off" or 0 disables
@@ -104,6 +114,11 @@ verbosity = "compact"                   # compact | verbose | debug
 | `OM_HARNESS_MAX_REQUESTS` | per-run request ceiling | `20` |
 | `OM_HARNESS_AGENT_TIMEOUT_SECONDS` | per-task agent timeout (`off` disables) | `300` |
 | `OM_HARNESS_TOOL_TIMEOUT_SECONDS` | per-tool-call timeout (`off` disables) | `30` |
+
+> **Memory configuration** (`[memory]` section) is configured via TOML files
+> (`om-harness.toml` or `[tool.om-harness.memory]` in `pyproject.toml`) only.
+> The `OM_HARNESS_*` env-var bridge does not currently cover memory settings;
+> set them in your config file instead.
 
 ### API key handling rules
 
@@ -140,6 +155,87 @@ om-harness doctor               # full environment diagnostic
 
 Invalid configuration fails loudly at startup (`ConfigError`) — never
 mid-run.
+
+## Project-level memory
+
+om-harness can persist structured facts discovered during agent work so they
+survive across sessions within the same repository. Memory is stored as JSONL
+under `<repo>/.om-harness/memory/` (gitignored, same durability model as the rest
+of the state directory).
+
+The `remember` tool stores a fact (with tags and a confidence score); the
+`recall` tool searches via a keyword inverted index — no vector database, no
+model calls. When context grows too large, the `ContextCompressor` mechanically
+extracts file paths, errors, decisions, and config values from conversation
+history into memory *before* summarizing, so nothing important is lost during
+compression. The `/memory` REPL command provides interactive management.
+
+**Memory is enabled by default.** Disable it entirely with
+`memory.enabled = false` in your config.
+
+```toml
+[memory]
+enabled = true                          # master switch
+max_entries = 1000                      # target ceiling for store compaction
+max_fact_chars = 500                  # per-fact content truncation
+auto_extract = true                   # extract facts during context compression
+compression_strategy = "mechanical"   # "mechanical" | "llm"
+retrieval_limit = 10                  # max facts recalled per assemble() call
+fact_ttl_days = 7                     # auto-extracted facts expire; 0/none disables
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `enabled` | `true` | Master switch for memory and enhanced compression |
+| `max_entries` | `1000` | Target ceiling for store compaction (future) |
+| `max_fact_chars` | `500` | Per-fact content truncation to bound storage |
+| `auto_extract` | `true` | Extract structured facts during context compression |
+| `compression_strategy` | `"mechanical"` | `"mechanical"` (no-LLM extraction, default) or `"llm"` (model-driven, requires a provider; falls back to mechanical when unavailable) |
+| `retrieval_limit` | `10` | Max facts recalled and injected into context per assemble call |
+| `fact_ttl_days` | `7` | TTL for auto-extracted facts; `0`, `"none"`, or `"disabled"` means never expire. Manually stored `remember` facts never expire regardless of this setting |
+
+The compression threshold lives in the `[context]` section:
+
+| Option | Default | Description |
+|---|---|---|
+| `max_context_tokens` | `None` | When set, the assembler estimates context size and, if it exceeds this, uses `ContextCompressor.compress_history` instead of the default `summarize_history`. `None` (or unset) keeps the original extractive behavior. |
+
+Memory settings are configured via TOML only — they are not yet wired to
+`OM_HARNESS_*` environment variables.
+
+### When and how facts are stored
+
+Facts enter memory through two distinct paths:
+
+**1. Agent-initiated (`remember` tool)** — The agent calls `remember` during
+a run when it judges a fact worth keeping (e.g. a bug location, a decision, a
+config detail). The tool creates a `MemoryEntry` with the fact text, optional
+tags, and the current session ID as `source_session`. Since `remember` is a
+mutating tool, it is gated by the approval policy (`auto` approves;
+`ask`/`allowlist`/`deny` may require or block confirmation). Manually stored
+facts are **never** expired by `fact_ttl_days`.
+
+**2. Automatic extraction (`ContextCompressor`)** — When the conversation
+history exceeds `context.max_history_messages`, the assembler must trim old
+messages. If **all three** conditions are met, the compressor extracts
+structured facts from the dropped messages *before* summarizing them:
+
+1. `memory.enabled = true` (the default)
+2. `memory.auto_extract = true` (the default)
+3. `context.max_context_tokens` is set to a number (not `null`/`None`)
+
+The compressor scans each message's text with regex patterns for file paths
+(`src/parser.py`), errors (crash/exception keywords), decisions (chose/will
+use/set to), and key-value/config pairs. Each match becomes a `MemoryEntry`
+tagged `["auto", "compressed", "<category>", "<role>"]`. Facts are persisted
+in a single batch to the JSONL store, then the raw transcript is replaced by
+a one-line entity summary. When any of the three conditions is not met, the
+assembler falls back to the original `summarize_history()` (first 120 chars
+of 3 recent messages) with no fact extraction.
+
+After each run, the harness calls `MemoryIndex.persist()` to flush updated
+access counts and any new entries back to disk, so the keyword index is
+rebuilt from the latest state on the next startup.
 
 ## Custom providers via `models.json`
 

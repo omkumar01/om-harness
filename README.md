@@ -141,6 +141,14 @@ decision is visible.
   timeout-bounded, and output-capped.
 - **Durable sessions**: state in `.om-harness/` (gitignored), atomic writes,
   checkpoints, and `resume` for interrupted work.
+- **Project-level memory**: facts discovered during one session persist across
+  sessions. The `remember` and `recall` tools (plus `/memory` REPL command)
+  let agents store and retrieve knowledge about the repository — file locations,
+  bugs found, decisions made, configuration details. Keyword-based retrieval,
+  no vector DB, no model calls. When context grows too large, mechanical fact
+  extraction preserves important findings into memory before compressing
+  conversation history (configurable threshold via `context.max_context_tokens`;
+  strategy via `memory.compression_strategy`).
 - **Observability**: every run, agent call, tool call, approval, retry, and
   usage figure is a typed event; `--verbose`/`--debug` expose them.
 - **Web reference client**: the same runtime, consumed over HTTP/SSE —
@@ -242,7 +250,7 @@ om Fixed add() in calc.py — tests pass.
 `/config` · `/config set <key> <value>` · `/timeout [agent|tool] <seconds|off>` ·
 `/providers` · `/tools` ·
 `/skills` · `/skill <name> [args]` · `/plugins` ·
-`/status` · `/sessions` · `/checkpoint [label]` · `/setup` · `/verbose` ·
+`/status` · `/sessions` · `/checkpoint [label]` · `/memory [list [tag] | recall <query> | clear]` · `/setup` · `/verbose` ·
 `/help` · `/exit`.
 
 `/setup` walks you through provider configuration (including adding a
@@ -345,6 +353,14 @@ implement = "anthropic:claude-sonnet-4-5"
 [approval]
 policy = "auto"          # ask | auto | allowlist | deny
 allowlist = ["write_file", "edit_file"]
+
+[context]
+max_context_tokens = 8000   # auto-compress when context exceeds this; None disables
+
+[memory]
+enabled = true                           # project-level memory master switch
+compression_strategy = "mechanical"        # "mechanical" | "llm"
+fact_ttl_days = 7                        # auto-extracted facts expire; 0/none disables
 ```
 
 Environment variables override the file: `OM_HARNESS_DEFAULT_MODEL`,
@@ -445,11 +461,12 @@ saved, and the CLI renders a summary. Details in
 | Repo contents re-sent each turn | Cached `RepoIndex` summary (paths + sizes, capped) |
 | One giant system prompt | Small role-scoped prompts (planner/explorer/implementer/reviewer/chat) |
 | Full transcripts passed between agents | Structured `TaskResult` (summary, findings, files, errors) |
-| Unbounded history growth | History trimmed to a window; the dropped tail becomes a one-line summary |
+| Unbounded history growth | History trimmed to a window; the dropped tail becomes a one-line summary (or, when `max_context_tokens` is set, facts are extracted to memory before the one-line summary so nothing important is lost) |
+| Repetitive reasoning across sessions | Project-level memory: `remember`/`recall` tools persist and retrieve facts; relevant facts are injected into context automatically |
 | Invisible cost | Per-component token ledger; `status` shows the effective model and usage |
 
-These properties are enforced by tests (see `tests/unit/test_context.py`),
-not just by convention.
+These properties are enforced by tests (see `tests/unit/test_context.py` and
+the `tests/unit/test_memory_*.py` suite), not just by convention.
 
 ## Testing strategy
 
@@ -499,8 +516,9 @@ src/om_harness/
 ├── models/          # Pydantic contracts: events, tasks, plans, sessions
 ├── config/          # TOML + env configuration, secret redaction
 ├── providers/       # provider registry, task-type router, mock models
-├── context/         # repo index, token budgeting, scoped assembly
-├── tools/           # repo tools + permission levels + approval engine
+├── context/         # repo index, token budgeting, scoped assembly, compression
+├── memory/          # project-level fact store, keyword index, fact extraction
+├── tools/           # repo tools + permission levels + approval engine + memory tools
 ├── runtime/         # event bus, session/checkpoint manager, agent runner
 ├── orchestration/   # planner, coordinator (waves/concurrency)
 ├── ui/              # shared components, terminal renderer, REPL, web/
