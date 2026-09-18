@@ -1,0 +1,13 @@
+# Security Policy
+
+## If you think you have identified a security issue with a Pydantic project, do not open a public issue.
+
+To responsibly report a security issue, please navigate to the "Security" tab for the repo, and click "Report a vulnerability".
+
+Screenshot of repo security tab showing "Report a vulnerability" button
+
+<img width="3364" height="811" alt="image" src="https://github.com/user-attachments/assets/3ed7152f-6001-47db-b931-0c6f569bb794" />
+
+Be sure to include as much detail as necessary in your report. As with reporting normal issues, a minimal reproducible example will help the maintainers address the issue faster.
+
+Thank you.
