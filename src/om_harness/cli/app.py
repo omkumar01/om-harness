@@ -95,6 +95,11 @@ def launch_interactive(
 
 def run_app() -> None:
     """Console-script entry point: dispatch the Typer application."""
+    import sys
+
+    from om_harness import updater
+
+    updater.notify_if_update_available(sys.argv[1:])
     app()
 
 
@@ -468,6 +473,90 @@ def install(
     for name in skill_names:
         console.print(f"  {name}")
     console.print("[dim]Restart om-harness (or start a new run) to pick up the new skills.[/]")
+
+
+@app.command()
+def update(json_mode: bool = typer.Option(False, "--json")) -> None:
+    """Update om-harness itself to the latest release."""
+    from om_harness import updater
+
+    current = __version__
+    latest = updater.latest_version()
+    if latest is not None and not updater.is_newer(latest, current):
+        if json_mode:
+            typer.echo(
+                _json_payload(
+                    {
+                        "current": current,
+                        "latest": latest,
+                        "upgraded": False,
+                        "message": "already up to date",
+                    }
+                )
+            )
+            return
+        console.print(f"[green]✔[/] om-harness {current} is up to date (latest: {latest}).")
+        return
+
+    channel = updater.detect_install_channel()
+    if channel.command is None:
+        message = f"This is an editable/git install — self-update skipped. {channel.label}."
+        if json_mode:
+            typer.echo(
+                _json_payload(
+                    {
+                        "current": current,
+                        "latest": latest,
+                        "channel": channel.kind,
+                        "upgraded": False,
+                        "message": message,
+                    }
+                )
+            )
+            return
+        console.print(message)
+        return
+
+    try:
+        result = updater.run_upgrade(channel)
+    except Exception as exc:  # timeouts, missing binaries, permission errors
+        if json_mode:
+            typer.echo(_json_payload({"error": str(exc)}))
+        else:
+            err_console.print(f"update failed: {exc}")
+        raise typer.Exit(1) from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        if json_mode:
+            typer.echo(_json_payload({"error": detail or "upgrade command failed"}))
+        else:
+            err_console.print(f"update failed: {detail or 'upgrade command failed'}")
+        raise typer.Exit(1)
+
+    notes = updater.fetch_release_notes(latest)
+    if latest:
+        updater.write_cached_version(latest)
+    if json_mode:
+        typer.echo(
+            _json_payload(
+                {
+                    "current": current,
+                    "latest": latest,
+                    "channel": channel.kind,
+                    "command": result.command,
+                    "upgraded": True,
+                    "notes": notes,
+                }
+            )
+        )
+        return
+    console.print(f"[green]✔[/] updated om-harness: {current} → [bold]{latest or 'latest'}[/]")
+    if notes:
+        console.print("[bold]What's new[/]")
+        console.print(notes, markup=False)
+    else:
+        console.print("[dim]Release notes: https://github.com/omkumar01/om-harness/releases[/]")
+    console.print("[dim]Restart om-harness to pick up the new version.[/]")
 
 
 @app.command()
