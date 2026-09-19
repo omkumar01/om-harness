@@ -370,6 +370,20 @@ around the turn. Wherever VT sequences are unavailable (tests, non-TTY
 output, exotic terminals) this degrades to plain streaming without a
 pinned bar.
 
+## Self-update
+
+Self-update is isolated in the leaf module `om_harness.updater`, which depends
+only on the standard library (`urllib`) — no new runtime dependencies. On
+startup `run_app()` calls `notify_if_update_available()` to check the latest
+PyPI release (cached 24h at `~/.om-harness/cache/latest-version.json`) and, if
+newer, prints one dim stderr line pointing to `om-harness update`. The check is
+skipped for `--version`/`--help`/`-h`/`--json`/`update`, silent on network
+failure, and opt-out via `OM_HARNESS_NO_UPDATE_CHECK=1`; only `pypi.org` and
+`api.github.com` are contacted, with loopback/private/link-local IPs and
+redirect targets blocked. The `om-harness update` command auto-detects the
+install channel (uv tool / pipx / pip / editable) and runs the matching upgrade
+before printing the new release's notes.
+
 ## Testing strategy
 
 - **Unit tests** cover every module contract; provider APIs are mocked via

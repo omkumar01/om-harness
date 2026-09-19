@@ -120,7 +120,8 @@ decision is visible.
 ## Feature highlights
 
 - **CLI-first**: `init`, `run`, `chat`, `agent`, `providers`, `doctor`,
-  `status`, `resume`, `config` — each with `--json` output for automation.
+  `status`, `resume`, `config`, `update` — each with `--json` output for automation.
+  `update` upgrades om-harness from PyPI via the auto-detected install channel.
 - **Multi-provider** via [PydanticAI](https://ai.pydantic.dev): OpenAI,
   Anthropic, Google/Gemini plus any OpenAI-compatible endpoint through one
   interface; your selected model always wins, with per-task routing and
@@ -196,6 +197,35 @@ om-harness                 # starts an interactive chat session
 
 The first launch creates your user config at `~/.om-harness/` and prints a
 short setup hint. That's the whole onboarding.
+
+### Updating
+
+om-harness can upgrade itself from PyPI:
+
+```bash
+om-harness update            # upgrade to the latest release
+om-harness update --json     # machine-readable output
+```
+
+The command auto-detects how om-harness was installed (`uv tool`, `pipx`, or
+`pip`) and runs the matching upgrade, then prints the new version's release notes
+under a "What's new" heading. Installations from a local editable or git source
+print manual upgrade instructions instead. `--json` emits `current`, `latest`,
+`channel`, `command`, `upgraded`, and `notes`.
+
+On every invocation, om-harness also checks PyPI for a newer release (cached for
+24 hours). If one is available, it prints a single dim line to stderr:
+
+```
+Update available: 1.3.0 (you have 1.2.0) — run: om-harness update
+```
+
+The notice is skipped for `--version`, `--help`/`-h`, `--json`, and the `update`
+command itself, and is silent on any network failure. To disable it entirely:
+
+```bash
+export OM_HARNESS_NO_UPDATE_CHECK=1
+```
 
 ## The interactive shell
 

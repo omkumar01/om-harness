@@ -35,6 +35,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   model's actual context window — from `contextWindow` in `models.json` for
   custom providers, or a built-in lookup table for known OpenAI / Anthropic /
   Google models — instead of a static 200k default.
+- **Self-update command**: `om-harness update` upgrades om-harness from PyPI via
+  the auto-detected install channel (`uv tool`, `pipx`, or `pip`), and prints the
+  new version's GitHub release notes. Supports `--json` output with keys
+  `current`, `latest`, `channel`, `command`, `upgraded`, and `notes`; exits
+  non-zero with captured stderr on failure. Editable/git installs print manual
+  upgrade instructions instead of auto-updating.
+- **Startup update notice**: every `om-harness` invocation checks PyPI for a
+  newer release (cached for 24h at `~/.om-harness/cache/latest-version.json`)
+  and, if one exists, prints a single dim line to stderr
+  (`Update available: …`). Skipped for `--version`, `--help`/`-h`, `--json`, and
+  the `update` command; silent on network failure; opt-out with
+  `OM_HARNESS_NO_UPDATE_CHECK=1`.
 
 - **New module**: `memory/` — project-level memory system that persists facts
   across sessions within a repository. Facts are stored as structured entries

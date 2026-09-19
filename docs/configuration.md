@@ -23,7 +23,8 @@ The delivered install keeps all configuration and caches here
 │   ├── config.toml     # user-level harness settings (created on demand)
 │   └── models.json     # user-level custom providers
 └── cache/
-    └── repo-index/     # persisted repository index caches (24h TTL)
+    ├── repo-index/     # persisted repository index caches (24h TTL)
+    └── latest-version.json   # PyPI latest-version check (24h TTL)
 ```
 
 Sessions and checkpoints stay repository-local (`<repo>/.om-harness/`,
@@ -114,6 +115,7 @@ verbosity = "compact"                   # compact | verbose | debug
 | `OM_HARNESS_MAX_REQUESTS` | per-run request ceiling | `20` |
 | `OM_HARNESS_AGENT_TIMEOUT_SECONDS` | per-task agent timeout (`off` disables) | `300` |
 | `OM_HARNESS_TOOL_TIMEOUT_SECONDS` | per-tool-call timeout (`off` disables) | `30` |
+| `OM_HARNESS_NO_UPDATE_CHECK` | disables the startup PyPI update check | `1` |
 
 > **Memory configuration** (`[memory]` section) is configured via TOML files
 > (`om-harness.toml` or `[tool.om-harness.memory]` in `pyproject.toml`) only.
