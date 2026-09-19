@@ -297,17 +297,19 @@ agent-facing `remember` tool creates new IDs per call).
 
 ## Future extension points
 
-Remote execution (networked `LocalStore`/`EventBus`), shared agent pools,
-hosted web app (same facade), more providers, MCP toolsets (PydanticAI
-capability), richer memory (cross-repository sharing, vector-backed semantic
-retrieval, TTL/compaction enforcement, `OM_HARNESS_*` env-var wiring for memory
-settings), evaluation harness (run the same scripted models against suites),
-team governance (approval policies are already a policy object), plugin
-capabilities beyond skills (slash commands, tools, Python entry points —
-`plugins/` already owns the install/discovery lifecycle and the manifest is
-the versioned seam). The
-REPL already supports a built-in set of slash commands (`/model`,
-`/thinking`, `/mode`, `/plan`, `/config`, `/timeout`, `/providers`, `/tools`,
-`/skills`, `/skill`, `/plugins`, `/status`, `/sessions`, `/checkpoint`,
-`/setup`, `/verbose`, `/help`, `/exit`); plugin-provided slash commands
-remain a future extension point.
+- **Remote execution** — networked `LocalStore`/`EventBus` (persistence is
+  currently local-file based and the event bus is in-process).
+- **Shared agent pools** — pooling agent sessions across concurrent clients
+  or tasks.
+- **MCP toolsets** — exposing tools via the Model Context Protocol
+  (PydanticAI capability).
+- **Richer memory** — cross-repository memory sharing, vector-backed
+  semantic retrieval, and `OM_HARNESS_*` env-var wiring for memory settings.
+- **Evaluation harness** — run the same scripted (mock) models against test
+  suites.
+- **Team governance** — shared, multi-user approval policies (approval is
+  already a policy object, but governance is per-user today).
+- **Plugin capabilities beyond skills** — plugin-contributed slash commands,
+  tools, and Python entry points (`plugins/` already owns the
+  install/discovery lifecycle and the manifest is the versioned seam, but
+  plugins can only contribute skills today).
