@@ -217,7 +217,7 @@ On every invocation, om-harness also checks PyPI for a newer release (cached for
 24 hours). If one is available, it prints a single dim line to stderr:
 
 ```
-Update available: 1.3.0 (you have 1.2.0) — run: om-harness update
+Update available: 1.4.0 (you have 1.3.0) — run: om-harness update
 ```
 
 The notice is skipped for `--version`, `--help`/`-h`, `--json`, and the `update`

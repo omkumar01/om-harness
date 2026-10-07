@@ -207,16 +207,16 @@ def _notice(capsys: pytest.CaptureFixture[str], argv: list[str]) -> str:
 def test_notice_prints_when_newer_version_available(
     home: Any, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(updater, "latest_version", lambda cache_dir=None: "1.3.0")
+    monkeypatch.setattr(updater, "latest_version", lambda cache_dir=None: "1.4.0")
     out = _notice(capsys, ["status"])
-    assert "1.3.0" in out
+    assert "1.4.0" in out
     assert "om-harness update" in out
 
 
 def test_notice_silent_when_up_to_date(
     home: Any, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(updater, "latest_version", lambda cache_dir=None: "1.2.0")
+    monkeypatch.setattr(updater, "latest_version", lambda cache_dir=None: "1.3.0")
     assert _notice(capsys, ["status"]) == ""
 
 
@@ -230,7 +230,7 @@ def test_notice_silent_when_check_unavailable(
 def test_notice_skipped_for_version_and_help_flags(
     home: Any, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(updater, "latest_version", lambda cache_dir=None: "1.3.0")
+    monkeypatch.setattr(updater, "latest_version", lambda cache_dir=None: "1.4.0")
     for argv in (["--version"], ["--help"], ["-h"], ["run", "--json"], ["update"]):
         assert _notice(capsys, argv) == "", f"expected silence for {argv}"
 
@@ -380,14 +380,14 @@ def _invoke_update(args: list[str]) -> Any:
 
 
 def test_update_command_already_up_to_date(home: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(updater, "latest_version", lambda cache_dir=None: "1.2.0")
+    monkeypatch.setattr(updater, "latest_version", lambda cache_dir=None: "1.3.0")
     result = _invoke_update([])
     assert result.exit_code == 0
     assert "up to date" in result.output
 
 
 def test_update_command_success_prints_notes(home: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(updater, "latest_version", lambda cache_dir=None: "1.3.0")
+    monkeypatch.setattr(updater, "latest_version", lambda cache_dir=None: "1.4.0")
     monkeypatch.setattr(
         updater,
         "detect_install_channel",
@@ -406,14 +406,14 @@ def test_update_command_success_prints_notes(home: Any, monkeypatch: pytest.Monk
 
     result = _invoke_update([])
     assert result.exit_code == 0
-    assert "1.3.0" in result.output
+    assert "1.4.0" in result.output
     assert "new stuff" in result.output
     assert "estart" in result.output
-    assert read_cached_version() == "1.3.0"
+    assert read_cached_version() == "1.4.0"
 
 
 def test_update_command_failure_exits_nonzero(home: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(updater, "latest_version", lambda cache_dir=None: "1.3.0")
+    monkeypatch.setattr(updater, "latest_version", lambda cache_dir=None: "1.4.0")
     monkeypatch.setattr(
         updater,
         "detect_install_channel",
@@ -430,7 +430,7 @@ def test_update_command_failure_exits_nonzero(home: Any, monkeypatch: pytest.Mon
 
 
 def test_update_command_json_payload(home: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(updater, "latest_version", lambda cache_dir=None: "1.3.0")
+    monkeypatch.setattr(updater, "latest_version", lambda cache_dir=None: "1.4.0")
     monkeypatch.setattr(
         updater,
         "detect_install_channel",
@@ -446,8 +446,8 @@ def test_update_command_json_payload(home: Any, monkeypatch: pytest.MonkeyPatch)
     result = _invoke_update(["--json"])
     assert result.exit_code == 0
     payload = json.loads(result.output)
-    assert payload["current"] == "1.2.0"
-    assert payload["latest"] == "1.3.0"
+    assert payload["current"] == "1.3.0"
+    assert payload["latest"] == "1.4.0"
     assert payload["channel"] == "pip"
     assert payload["upgraded"] is True
     assert payload["notes"] == "- note"
@@ -456,7 +456,7 @@ def test_update_command_json_payload(home: Any, monkeypatch: pytest.MonkeyPatch)
 def test_update_command_manual_channel_gives_instructions(
     home: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(updater, "latest_version", lambda cache_dir=None: "1.3.0")
+    monkeypatch.setattr(updater, "latest_version", lambda cache_dir=None: "1.4.0")
     monkeypatch.setattr(
         updater,
         "detect_install_channel",

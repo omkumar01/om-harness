@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [1.3.0] - 2026-10-07
+
+### Changed
+
+- **Thinking defaults**: the default model thinking level is now `medium` (was
+  `off`) — reasoning budgets are sent by default — and the default reasoning
+  display is now `minimized` (was `inline`), collapsing the stream to a
+  `◐ thinking…` indicator with a per-turn token summary. `/thinking <level>`,
+  `/thinking [inline|minimized|off]`, and `Ctrl+T` still override either axis.
+
 ### Added
 
 - **Session resume everywhere**: after `om-harness run` completes and when the
