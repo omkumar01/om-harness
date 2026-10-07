@@ -119,6 +119,7 @@ def test_thinking_deltas_render_and_close_the_line(
     harness = Harness(repo_root=_repo(tmp_path), env={})
     session = harness.sessions.create(repo_root=str(tmp_path))
     repl = ChatRepl(harness, session_id=session.session_id)
+    repl.thinking_display = "inline"
 
     async def stream_then_reply(*args: Any, **kwargs: Any) -> str:
         for chunk in ("think ", "more "):
@@ -245,13 +246,10 @@ def test_slash_model_selector_fallback(tmp_path: Any, home: Any, capsys: Any) ->
 
 
 def test_thinking_display_cycles(tmp_path: Any, home: Any, capsys: Any) -> None:
-    """`/thinking` (no args) cycles: inline -> minimized -> off -> inline."""
+    """`/thinking` (no args) cycles: minimized -> off -> inline -> minimized."""
     repl, _ = _repl(tmp_path, home)
-    assert repl.thinking_display == "inline"
-    # inline -> minimized
-    assert repl._slash_command("/thinking")
+    # Default display is now minimized; cycling advances inline -> minimized -> off.
     assert repl.thinking_display == "minimized"
-    assert "collapsed" in capsys.readouterr().out
     # minimized -> off
     assert repl._slash_command("/thinking")
     assert repl.thinking_display == "off"
@@ -260,6 +258,10 @@ def test_thinking_display_cycles(tmp_path: Any, home: Any, capsys: Any) -> None:
     assert repl._slash_command("/thinking")
     assert repl.thinking_display == "inline"
     assert "full" in capsys.readouterr().out
+    # inline -> minimized
+    assert repl._slash_command("/thinking")
+    assert repl.thinking_display == "minimized"
+    assert "collapsed" in capsys.readouterr().out
 
 
 def test_slash_thinking_sets_level(tmp_path: Any, home: Any, capsys: Any) -> None:
@@ -931,8 +933,8 @@ def test_thinking_inline_sets_display_mode(tmp_path: Any, home: Any, capsys: Any
     repl.thinking_display = "off"
     assert repl._slash_command("/thinking inline")
     assert repl.thinking_display == "inline"
-    # Model level must be untouched by display words.
-    assert harness.config.thinking == "off"
+    # Model level must be untouched by display words; default level is medium.
+    assert harness.config.thinking == "medium"
     assert repl._slash_command("/thinking minimized")
     assert repl.thinking_display == "minimized"
 
@@ -955,7 +957,7 @@ def test_recovered_thinking_rendered_when_no_live_stream(
     harness = Harness(repo_root=_repo(tmp_path), env={})
     session = harness.sessions.create(repo_root=str(tmp_path))
     repl = ChatRepl(harness, session_id=session.session_id)
-    assert repl.thinking_display == "inline"
+    repl.thinking_display = "inline"
 
     async def turn_with_recovered_thinking(*args: Any, **kwargs: Any) -> str:
         harness.bus.publish_sync(

@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (off/low/medium/high) and Ctrl+T still control the model's thinking level.
   When a provider does not stream reasoning deltas, thinking recovered from
   the completed run is rendered inline instead of silently disappearing.
+- **Thinking defaults**: the default model thinking level is now `medium` (was
+  `off`) and the default display mode is now `minimized` (was `inline`), so
+  reasoning is on by default but collapsed to a `◐ thinking…` indicator unless
+  expanded with `/thinking inline`.
 - **Live tool call visibility**: tool calls without a dedicated live rendering
   (e.g. `read_file`, `fetch_url`, `skill`) now display as
   `⚙ tool name(args)` in every verbosity mode, not just verbose/debug.

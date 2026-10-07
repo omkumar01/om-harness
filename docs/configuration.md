@@ -36,7 +36,8 @@ validates the change, applies it to the live session, and persists it to
 ### Thinking level
 
 `thinking = "off" | "low" | "medium" | "high"` controls how much reasoning
-budget the model gets. The runner maps it to each provider's native setting:
+budget the model gets. Defaults to `"medium"`. The runner maps it to each
+provider's native setting:
 
 | Provider | Setting applied |
 |---|---|

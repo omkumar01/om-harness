@@ -109,7 +109,7 @@ View or modify configuration settings. Without arguments, displays current confi
 | Key | Description | Values |
 |-----|-------------|--------|
 | `model` | Default model | `provider:model` |
-| `thinking` | Default thinking level | `off`, `low`, `medium`, `high` |
+| `thinking` | Default thinking level | `off`, `low`, `medium`, `high` (default: `medium`) |
 | `approval` | Default approval mode | `ask`, `auto`, `allowlist`, `deny` |
 | `verbosity` | Default output verbosity | `compact`, `verbose`, `debug` |
 | `max_concurrency` | Max parallel agent tasks | Integer |

@@ -169,7 +169,7 @@ class HarnessConfig(BaseModel):
     tool_timeout_seconds: float | None = 60.0
     tool_max_retries: int | None = 3
     verbosity: Verbosity = Verbosity.compact
-    thinking: ThinkingLevel = ThinkingLevel.off
+    thinking: ThinkingLevel = ThinkingLevel.medium
 
     @field_validator("max_concurrency")
     @classmethod

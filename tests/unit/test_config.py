@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from om_harness.config.loader import ConfigError, HarnessConfig, load_config
+from om_harness.config.loader import ConfigError, HarnessConfig, ThinkingLevel, load_config
 from om_harness.config.secrets import SecretRedactor
 
 
@@ -18,6 +18,7 @@ def test_defaults() -> None:
     assert config.approval.policy == "ask"
     assert config.max_concurrency >= 1
     assert config.verbosity == "compact"
+    assert config.thinking == ThinkingLevel.medium
 
 
 def test_skills_defaults_enabled() -> None:

@@ -202,7 +202,7 @@ class ChatRepl:
         # Thinking display mode: "inline" streams reasoning, "minimized"
         # collapses it to a compact indicator, "off" hides it entirely.
         # /thinking <level> (or Ctrl+T) still controls the model's thinking.
-        self.thinking_display = "inline"
+        self.thinking_display = "minimized"
         self.plan_mode = False
         self._saved_approval_policy: Any = None
         self._thinking_active = False
